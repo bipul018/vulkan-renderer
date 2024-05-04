@@ -20,7 +20,7 @@ VkValidationFeaturesEXT validation_features = {
   .sType=VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT,
   .enabledValidationFeatureCount = 1,
   .pEnabledValidationFeatures =
-  (VkValidationFeaturesEXT []){
+  (VkValidationFeatureEnableEXT []){
     VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
   },
   .pNext = &debug_callbacks

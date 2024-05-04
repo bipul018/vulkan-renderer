@@ -5,17 +5,12 @@
 typedef struct OnePage OnePage;
 typedef struct MemoryDesc MemoryDesc;
 typedef struct DaAllocr DaAllocr;
-struct DaAllocr {
-  OnePage* pages;
-  MemoryDesc* allocd;
-  MemoryDesc* freed;
-};
-
 typedef struct GPUAllocr GPUAllocr;
 struct GPUAllocr {
   //TODO:: Later make this dynamically allocated, so DaAllocr can be moved inside the .c only
-  DaAllocr allocrs[VK_MAX_MEMORY_TYPES];
-  AllocInterface allocr;
+  //DaAllocr allocrs[VK_MAX_MEMORY_TYPES];
+  DaAllocr* gpu_allocrs;
+  AllocInterface cpu_allocr;
   VkPhysicalDeviceMemoryProperties props;
   u32 nc_atom_size;
 };

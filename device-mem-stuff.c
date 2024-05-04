@@ -1,4 +1,5 @@
 #include "device-mem-stuff.h"
+#include <string.h>
 //TODO :: Need to make a partitioning scheme for cases when the alignment requirement is
 //        too high, so need to also partition the front bit
 typedef struct OnePage OnePage;
@@ -9,10 +10,15 @@ struct OnePage {
   size_t size;
   size_t free;
 };
+typedef struct DaAllocr DaAllocr;
+struct DaAllocr {
+  OnePage* pages;
+  MemoryDesc* allocd;
+  MemoryDesc* freed;
+};
 
 typedef struct MemoryDesc MemoryDesc;
 struct MemoryDesc {
-
   //id is the valid vulkan handle to the buffer that was created out of chosen memory
   // or maybe later it will be a union of buffer and image handle, 
   void* id;
@@ -250,7 +256,10 @@ struct MemoryInxPair find_alloc_mem(GPUAllocr* gpu_allocr,
 			   size_t size, size_t align,
 			   VkDevice device){
 
-  for_slice(init_DaAllocr_slice(gpu_allocr->allocrs,
+  if(nullptr == gpu_allocr->gpu_allocrs)
+    return (struct MemoryInxPair){0};
+
+  for_slice(init_DaAllocr_slice(gpu_allocr->gpu_allocrs,
 			   gpu_allocr->props.memoryTypeCount), inx){
 
     const bool is_type = ((1<<inx) & memory_type_flags) != 0;
@@ -258,8 +267,8 @@ struct MemoryInxPair find_alloc_mem(GPUAllocr* gpu_allocr,
 				 gpu_allocr->props.memoryTypes[inx].propertyFlags);
     if(is_type && is_props){
       MemoryDesc* allocd =
-	alloc_da_memory(gpu_allocr->allocrs + inx,
-			size, align, gpu_allocr->allocr,
+	alloc_da_memory(gpu_allocr->gpu_allocrs + inx,
+			size, align, gpu_allocr->cpu_allocr,
 			inx, device);
       if(allocd != nullptr){
 	return (struct MemoryInxPair){.mem = allocd, .inx = inx};
@@ -300,6 +309,9 @@ OptBuffer alloc_buffer(GPUAllocr* gpu_allocr, VkDevice device, size_t size, Allo
     buffer.code = ALLOC_BUFFER_OUT_OF_MEMORY;
     return buffer;
   }
+  //Calculate the actual offset again using alignment
+  size_t aligned_off = _align_up(allocd.mem->offset, mem_reqs.alignment);
+  
   buffer.value.backing = allocd.mem;
   buffer.value.size = mem_reqs.size;
   buffer.value.mem_inx = allocd.inx;
@@ -308,7 +320,7 @@ OptBuffer alloc_buffer(GPUAllocr* gpu_allocr, VkDevice device, size_t size, Allo
   //Now bind memory
   result = vkBindBufferMemory(device, buffer.value.vk_obj,
 			      allocd.mem->page->handle,
-			      (VkDeviceSize)allocd.mem->offset);
+			      (VkDeviceSize)aligned_off);
   if(result != VK_SUCCESS){
     buffer.code = ALLOC_BUFFER_MEMORY_BIND_FAIL;
     return buffer;
@@ -335,7 +347,7 @@ OptImage alloc_image(GPUAllocr* gpu_allocr, VkDevice device, size_t width, size_
     .samples = VK_SAMPLE_COUNT_1_BIT,
     //This will have to be taken as parameter/decide by usage and initial layout automatically
     //linear tiling also may have some padding, also linear has a lot of restrictions
-    .tiling = params.optimal_layout?VK_IMAGE_TILING_OPTIMAL:VK_IMAGE_TILING_LINEAR, 
+    .tiling = (params.optimal_layout?VK_IMAGE_TILING_OPTIMAL:VK_IMAGE_TILING_LINEAR), 
        //Possible values for usage : transfer cannot be used alone
     /* VK_IMAGE_USAGE_TRANSFER_SRC_BIT = 0x00000001, */
     /* VK_IMAGE_USAGE_TRANSFER_DST_BIT = 0x00000002, */
@@ -352,7 +364,7 @@ OptImage alloc_image(GPUAllocr* gpu_allocr, VkDevice device, size_t width, size_
     .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
     //This has to be taken in, but as a bool to set to preinitialized or undefined
     //preinitialized is 'useful' only with linear tiling
-    .initialLayout = params.pre_initialized?VK_IMAGE_LAYOUT_PREINITIALIZED:VK_IMAGE_LAYOUT_UNDEFINED,
+    .initialLayout = (params.pre_initialized?VK_IMAGE_LAYOUT_PREINITIALIZED:VK_IMAGE_LAYOUT_UNDEFINED),
   };
   //TODO :: later make, for both buffer and image a proper format selection
   //mechanism out of usages by properly quering the hardware properties
@@ -383,6 +395,7 @@ OptImage alloc_image(GPUAllocr* gpu_allocr, VkDevice device, size_t width, size_
     image.code = ALLOC_IMAGE_OUT_OF_MEMORY;
     return image;
   }
+  size_t aligned_off = _align_up(allocd.mem->offset, mem_reqs.alignment);
   image.value.backing = allocd.mem;
   //image.value.size = mem_reqs.size;
   image.value.width = width;
@@ -393,7 +406,7 @@ OptImage alloc_image(GPUAllocr* gpu_allocr, VkDevice device, size_t width, size_
   //Now bind memory
   result = vkBindImageMemory(device, image.value.vk_obj,
 			      allocd.mem->page->handle,
-			      (VkDeviceSize)allocd.mem->offset);
+			      aligned_off);
   if(result != VK_SUCCESS){
     image.code = ALLOC_IMAGE_MEMORY_BIND_FAIL;
     return image;
@@ -427,8 +440,8 @@ OptBuffer free_buffer(GPUAllocr* gpu_allocr, OptBuffer buffer, VkDevice device){
   case ALLOC_BUFFER_MEMORY_BIND_FAIL:{
     /* VkMemoryRequirements mem_reqs; */
     /* vkGetBufferMemoryRequirements(device, buffer.value.vk_obj, &mem_reqs); */
-    free_da_memory(gpu_allocr->allocrs + buffer.value.mem_inx,
-		   gpu_allocr->allocr,
+    free_da_memory(gpu_allocr->gpu_allocrs + buffer.value.mem_inx,
+		   gpu_allocr->cpu_allocr,
 		   (void*)buffer.value.vk_obj);
     /* find_free_mem(gpu_allocr, */
     /* 		  mem_reqs.memoryTypeBits, */
@@ -452,8 +465,8 @@ OptImage free_image(GPUAllocr* gpu_allocr, OptImage image, VkDevice device){
   case ALLOC_IMAGE_MEMORY_BIND_FAIL:{
     /* VkMemoryRequirements mem_reqs; */
     /* vkGetImageMemoryRequirements(device, image.value.vk_obj, &mem_reqs); */
-    free_da_memory(gpu_allocr->allocrs + image.value.mem_inx,
-		   gpu_allocr->allocr,
+    free_da_memory(gpu_allocr->gpu_allocrs + image.value.mem_inx,
+		   gpu_allocr->cpu_allocr,
 		   (void*)image.value.vk_obj);
     /* find_free_mem(gpu_allocr, */
     /* 		  mem_reqs.memoryTypeBits, */
@@ -475,14 +488,24 @@ OptImage free_image(GPUAllocr* gpu_allocr, OptImage image, VkDevice device){
 //Also we will need a init and free for the whole thing
 GPUAllocr init_allocr(VkPhysicalDevice phy_dev, AllocInterface allocr){
   GPUAllocr gpu_allocr = {0};
-  gpu_allocr.allocr = allocr;
+  gpu_allocr.cpu_allocr = allocr;
   vkGetPhysicalDeviceMemoryProperties(phy_dev, &(gpu_allocr.props));
   
   VkPhysicalDeviceProperties device_props;
   vkGetPhysicalDeviceProperties(phy_dev, &device_props);
 
   gpu_allocr.nc_atom_size = device_props.limits.nonCoherentAtomSize;
+
+  //Now allocate array
+  gpu_allocr.gpu_allocrs = alloc_mem(allocr,
+				     sizeof(DaAllocr) * gpu_allocr.props.memoryTypeCount,
+				     alignof(DaAllocr));
+  if(nullptr != gpu_allocr.gpu_allocrs){
+    memset(gpu_allocr.gpu_allocrs, 0,
+	   sizeof(DaAllocr) * gpu_allocr.props.memoryTypeCount);
+  }
   return gpu_allocr;
+  
 }
 
 //Won't destroy buffers or images for now
@@ -491,25 +514,25 @@ GPUAllocr deinit_allocr(GPUAllocr allocr, VkDevice device){
     
     //Free all pages' device memory
     //Free all linked list nodes
-    OnePage* head = allocr.allocrs[i].pages;
+    OnePage* head = allocr.gpu_allocrs[i].pages;
     while(head != nullptr){
       vkFreeMemory(device, head->handle, get_glob_vk_alloc());
       OnePage* next =head->next;
-      free_mem(allocr.allocr, head);
+      free_mem(allocr.cpu_allocr, head);
       head = next;
     }
 
-    MemoryDesc* allocd = allocr.allocrs[i].allocd;
+    MemoryDesc* allocd = allocr.gpu_allocrs[i].allocd;
     while(allocd != nullptr){
       MemoryDesc* next = allocd->next;
-      free_mem(allocr.allocr, allocd);
+      free_mem(allocr.cpu_allocr, allocd);
       allocd = next;
     }
 
-    MemoryDesc* freed = allocr.allocrs[i].freed;
+    MemoryDesc* freed = allocr.gpu_allocrs[i].freed;
     while(freed != nullptr){
       MemoryDesc* next = freed->next;
-      free_mem(allocr.allocr, freed);
+      free_mem(allocr.cpu_allocr, freed);
       freed = next;
     }
   }
@@ -524,12 +547,15 @@ void* create_mapping_of_buffer(VkDevice device, GPUAllocr allocr, BufferObj buff
   //Check memory properties for host visible
   //Then map
 
+  VkMemoryRequirements mem_reqs; 
+  vkGetBufferMemoryRequirements(device, buffer.vk_obj, &mem_reqs);
   if((allocr.props.memoryTypes[buffer.mem_inx].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)){
 
     void* mapping = nullptr;
     if(VK_SUCCESS == vkMapMemory(device, buffer.backing->page->handle,
 				 (VkDeviceSize)0, VK_WHOLE_SIZE, 0, &mapping)){
-      return (u8*)mapping + buffer.backing->offset;
+      size_t aligned_off = _align_up(buffer.backing->offset, mem_reqs.alignment);
+      return (u8*)mapping + aligned_off;
     }
   }
   return nullptr;
@@ -568,11 +594,15 @@ void* create_mapping_of_image(VkDevice device, GPUAllocr allocr, ImageObj image)
   //Check memory properties for host visible
   //Then map
 
+  VkMemoryRequirements mem_reqs;
+  vkGetImageMemoryRequirements(device, image.vk_obj, &mem_reqs);
   if((allocr.props.memoryTypes[image.mem_inx].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)){
 
     void* mapping = nullptr;
     if(VK_SUCCESS == vkMapMemory(device, image.backing->page->handle,
 				 (VkDeviceSize)0, VK_WHOLE_SIZE, 0, &mapping)){
+      
+      size_t aligned_off = _align_up(image.backing->offset, mem_reqs.alignment);
       return (u8*)mapping + image.backing->offset;
     }
   }

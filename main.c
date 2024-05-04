@@ -58,6 +58,8 @@ VkBool32 vk_debug_callback(
   return VK_FALSE;
 }
 
+PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR_ = nullptr;
+
 //Create win32 surface and window and stuff
 
 LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam){
@@ -72,7 +74,9 @@ LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam){
 
 int main(){
   AllocInterface allocr = gen_std_allocator();
+  
   VulkanLayer inst_layers[] = {
+    //{.layer_name = "VK_LAYER_LUNARG_api_dump", .required = true},
     {.layer_name = "VK_LAYER_KHRONOS_validation", .required = true},
   };
 
@@ -127,12 +131,14 @@ int main(){
   VulkanExtension dev_extensions[] = {
     {.extension_name = VK_KHR_SWAPCHAIN_EXTENSION_NAME, .required = true},
     {.extension_name = VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, .required = true},
+    {.extension_name = "VK_KHR_push_descriptor", .required = true},
   };
 
   //Features to enable
   void* device_feats = MAKE_DEVICE_FEATURES();
 
   GET_FEATURE_1_3(device_feats, inlineUniformBlock) = VK_TRUE;
+  GET_FEATURE_1_3(device_feats, synchronization2) = VK_TRUE;
   //GET_FEATURE_1_0(device_feats, fillModeNonSolid) = VK_TRUE;
 
   OptVulkanDevice device = create_device(allocr,
@@ -151,6 +157,13 @@ int main(){
 
   printf("Device Created\n");
 
+  //Create the fnx
+  vkCmdPushDescriptorSetKHR_ = (PFN_vkCmdPushDescriptorSetKHR)vkGetDeviceProcAddr(device.value.device, "vkCmdPushDescriptorSetKHR");
+
+  if(vkCmdPushDescriptorSetKHR_ == nullptr){
+    printf("Warning, couldnot get device proc address\n");
+  }
+  
   //Create renderpass
   OptRenderPass render_pass = create_render_pass(device.value.device,
 						 img_format.format,
@@ -250,7 +263,7 @@ int main(){
 	.present_done_semaphore = present_done_semas.value.data[curr_frame],
 	.render_done_fence = frame_fences.value.data[curr_frame],
 	.clear_value = (VkClearValue){
-	  .color = {0.1f, 0.1f, 0.1f, 1.0f}
+	  .color = {0.9f, 0.9f, 0.9f, 1.0f}
 	},
 	.p_img_inx = &img_inx});
 
