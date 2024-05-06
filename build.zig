@@ -25,7 +25,7 @@ fn add_source(step: *std.Build.Step.Run, src: [] const u8) void{
     step.addFileArg(.{.path = src});
 }
 fn add_output(step: *std.Build.Step.Run, out: [] const u8) std.Build.LazyPath{
-    return step.addPrefixedOutputFileArg("-o", out);
+    return step.addPrefixedOutputFileArg("-o", out );
 }
 pub fn build(b: *std.Build) void {
     // const target = b.standardTargetOptions(.{});

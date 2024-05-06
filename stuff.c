@@ -58,7 +58,7 @@ static bool init_textures(void){
   };
 
   int width, height, channels = 4;
-  unsigned char *img = stbi_load("res/aphoto.jpg", &width, &height, &channels, 4);
+  unsigned char *img = stbi_load("./res/aphoto.jpg", &width, &height, &channels, 4);
   unsigned char *image = img;
   if(img == NULL) {
     printf("Error in loading the image\n");
@@ -259,8 +259,8 @@ void init_stuff(VulkanDevice device, AllocInterface allocr, VkRenderPass render_
   if(was_success){
     main_pipeline = create_pipeline1(g_allocr, g_device.device, vert_desc,
 				     (ShaderNames){
-				       .vert = "shaders/vert-sh.spv",
-				       .frag = "shaders/frag-sh.spv"
+				       .vert = "./shaders/glsl.vert.spv",
+				       .frag = "./shaders/glsl.frag.spv"
 				     }, render_pass, 0);
   }
   clear_vertex_input(&vert_desc);
