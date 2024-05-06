@@ -309,6 +309,7 @@ OptBuffer alloc_buffer(GPUAllocr* gpu_allocr, VkDevice device, size_t size, Allo
     buffer.code = ALLOC_BUFFER_OUT_OF_MEMORY;
     return buffer;
   }
+  
   //Calculate the actual offset again using alignment
   size_t aligned_off = _align_up(allocd.mem->offset, mem_reqs.alignment);
   
@@ -316,7 +317,16 @@ OptBuffer alloc_buffer(GPUAllocr* gpu_allocr, VkDevice device, size_t size, Allo
   buffer.value.size = mem_reqs.size;
   buffer.value.mem_inx = allocd.inx;
   allocd.mem->id = buffer.value.vk_obj;
-
+  
+  if(param.make_transfer_dst && !(gpu_allocr->props.memoryTypes[allocd.inx].propertyFlags &
+				  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)){
+    buffer.code = ALLOC_BUFFER_MEMORY_BIND_FAIL;
+    free_buffer(gpu_allocr, buffer, device);
+    param.make_transfer_dst = false;
+    param.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    return alloc_buffer(gpu_allocr, device, size, param);
+  }
+      
   //Now bind memory
   result = vkBindBufferMemory(device, buffer.value.vk_obj,
 			      allocd.mem->page->handle,

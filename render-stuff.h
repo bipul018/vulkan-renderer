@@ -1,5 +1,6 @@
 #pragma once
 #include "common-stuff.h"
+#include "pipeline-helpers.h"
 
 typedef struct{
   VkRenderPass value;
@@ -49,7 +50,7 @@ struct GraphicsPipelineCreationInfos {
   VkPipelineViewportStateCreateInfo viewport_state;
   VkPipelineTessellationStateCreateInfo tessellation_state;
   VkPipelineInputAssemblyStateCreateInfo input_assembly_state;
-  VkPipelineVertexInputStateCreateInfo vertex_input_state;
+  //VkPipelineVertexInputStateCreateInfo vertex_input_state;
   VkPipelineCreateFlags flags;
 };
 typedef struct GraphicsPipelineCreationInfos
@@ -58,12 +59,19 @@ GraphicsPipelineCreationInfos;
 GraphicsPipelineCreationInfos
 default_graphics_pipeline_creation_infos(void);
 
+typedef struct ShaderNames ShaderNames;
+struct ShaderNames {
+  const char* vert;
+  const char* frag;
+  const char* geom;
+};
+
 typedef struct {
   GraphicsPipelineCreationInfos create_infos;
+  VertexBindingSlice vert_bindings;
+  VertexAttributeSlice vert_attrs;
   VkPipelineLayout pipe_layout;
-  const char *vert_shader_file;
-  const char *frag_shader_file;
-  const char *geom_shader_file;
+  ShaderNames shaders;
   VkRenderPass compatible_render_pass;
   uint32_t subpass_index;
 } CreateGraphicsPipelineParam;
@@ -78,7 +86,6 @@ typedef struct{
     CREATE_GRAPHICS_PIPELINE_OK = 0,
   } code;
 } OptPipeline;
-
 
 OptPipeline create_graphics_pipeline(AllocInterface allocr, VkDevice device,
 				     CreateGraphicsPipelineParam param);

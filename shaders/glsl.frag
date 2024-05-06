@@ -1,13 +1,14 @@
 //glsl version 4.5
 #version 450
+#include "glsl.h"
 
-//output write
+
 layout (location = 0) out vec4 outFragColor;
 layout (location = 0) in vec4 inVertPos;
 layout (location = 1) in vec2 ogPos;
 
-layout (set = 2, binding = 0) uniform sampler smplr;
-layout (set = 2, binding = 1) uniform texture2D tex;
+layout (set = TEXTURE_UNI_LOCATION, binding = 0) uniform sampler smplr;
+layout (set = TEXTURE_UNI_LOCATION, binding = 1) uniform texture2D tex;
 
 void main()
 {

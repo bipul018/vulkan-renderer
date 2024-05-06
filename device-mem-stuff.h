@@ -1,3 +1,4 @@
+
 #pragma once
 
 #include "common-stuff.h"
@@ -31,6 +32,8 @@ typedef struct {
   //VkSharingMode share_mode;
   VkBufferUsageFlags usage;
   u32 props_flags;
+  //Used to only add flag transfer_dst if not host visible
+  bool make_transfer_dst;
 } AllocBufferParams;
 
 typedef struct{

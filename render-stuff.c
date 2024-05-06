@@ -191,36 +191,6 @@ GraphicsPipelineCreationInfos
 default_graphics_pipeline_creation_infos() {
     GraphicsPipelineCreationInfos infos;
 
-    static const VkVertexInputBindingDescription
-        default_input_bindings[] = { {
-            .binding = 0,
-            .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-            .stride = sizeof(float),
-        } };
-
-    static const VkVertexInputAttributeDescription
-        default_input_attrs[] = {
-
-            {
-                .offset = 0,
-                .binding = 0,
-                .location = 0,
-                .format = VK_FORMAT_R32G32B32_SFLOAT,
-            }
-
-        };
-
-    infos.vertex_input_state = (VkPipelineVertexInputStateCreateInfo){
-        .sType =
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-        .pVertexBindingDescriptions = default_input_bindings,
-        .vertexBindingDescriptionCount =
-        _countof(default_input_bindings),
-        .pVertexAttributeDescriptions = default_input_attrs,
-        .vertexAttributeDescriptionCount =
-        _countof(default_input_attrs),
-    };
-
     infos
         .input_assembly_state = (
             VkPipelineInputAssemblyStateCreateInfo){
@@ -337,8 +307,8 @@ OptPipeline create_graphics_pipeline(AllocInterface allocr, VkDevice device,
     };
 
     //Must provide vertex and fragment shader names
-    if((nullptr == param.vert_shader_file) ||
-       (nullptr == param.frag_shader_file)){
+    if((nullptr == param.shaders.vert) ||
+       (nullptr == param.shaders.frag)){
       pipeline.code = CREATE_GRAPHICS_PIPELINE_VERT_FRAG_SHADER_NAME_ERR;
       return pipeline;
     }
@@ -347,15 +317,15 @@ OptPipeline create_graphics_pipeline(AllocInterface allocr, VkDevice device,
       SLICE_FROM_ARRAY(ShaderCreateInfo,
 		       ((ShaderCreateInfo[]){
 			 {
-			   .file_name = param.vert_shader_file,
+			   .file_name = param.shaders.vert,
 			   .stage = VK_SHADER_STAGE_VERTEX_BIT,
 			 },
 			 {
-			   .file_name = param.frag_shader_file,
+			   .file_name = param.shaders.frag,
 			   .stage = VK_SHADER_STAGE_FRAGMENT_BIT,
 			 },
 			 {
-			   .file_name = param.geom_shader_file,
+			   .file_name = param.shaders.geom,
 			   .stage = VK_SHADER_STAGE_GEOMETRY_BIT
 			 }}));
 
@@ -384,12 +354,21 @@ OptPipeline create_graphics_pipeline(AllocInterface allocr, VkDevice device,
       }
     }
 
+    
+    VkPipelineVertexInputStateCreateInfo vertex_input_state = {
+      .sType =VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+      .pVertexBindingDescriptions = param.vert_bindings.data,
+      .vertexBindingDescriptionCount = param.vert_bindings.count,
+      .pVertexAttributeDescriptions = param.vert_attrs.data,
+      .vertexAttributeDescriptionCount = param.vert_attrs.count
+    };
+
     VkGraphicsPipelineCreateInfo create_info = {
         .sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
         .stageCount = used_shaders.count,
         .pStages = shader_create_infos_buffer,
-
-        .pVertexInputState = &param.create_infos.vertex_input_state,
+	
+        .pVertexInputState = &vertex_input_state,
         .pInputAssemblyState =
         &param.create_infos.input_assembly_state,
         .pViewportState = &param.create_infos.viewport_state,

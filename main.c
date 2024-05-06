@@ -22,10 +22,10 @@ VkBool32 vk_debug_callback(
 
   const bool enable_printf = false;
   
-  if((messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) &&
-     (!enable_printf || 
-      ((0 != strcmp("WARNING-DEBUG-PRINTF", msg->pMessageIdName)))))
-    return VK_FALSE;
+  /* if((messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) && */
+  /*    (!enable_printf ||  */
+  /*     ((0 != strcmp("WARNING-DEBUG-PRINTF", msg->pMessageIdName))))) */
+  /*   return VK_FALSE; */
   
 
 
@@ -55,6 +55,11 @@ VkBool32 vk_debug_callback(
   printf("%*sMessage >> %s\n\n", msg_len, "", msg->pMessage);
 
   num++;
+
+  if(messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT){
+    assert(false);
+  }
+  
   return VK_FALSE;
 }
 
@@ -249,7 +254,7 @@ int main(){
     if(msg.message == WM_QUIT){
       break;
     }
-    update_stuff(window.value.width, window.value.height);
+    update_stuff(window.value.width, window.value.height, curr_frame);
     //Here do vulkan rendering stuff
     u32 img_inx = 0;
     int begin_code = begin_rendering_operations

@@ -128,6 +128,7 @@ OptSwapchainOut create_swapchain(AllocInterface allocr, CreateSwapchainParam par
     // Now just use set width and height, also currently not checked
     // anything from capabilities Also be aware of _max and _min extent
     // set to numeric _max of uint32_t
+    //TODO :: make this not -1 but max compare
     if (curr_extent.width != -1 &&
         curr_extent.height != -1) {
       
