@@ -444,14 +444,7 @@ OptSemaphores create_semaphores(AllocInterface allocr,
     if(semas.value.data == nullptr){
       semas.code = CREATE_SEMAPHORES_ALLOC_FAIL;
       return semas;
-    }
-    // p_win->render_finished_semaphores =
-    // malloc(p_win->max_frames_in_flight * sizeof(VkSemaphore));
-    // res--; if (!p_win->render_finished_semaphores) goto clear;
-
-    // p_win->image_available_semaphores =
-    // malloc(p_win->max_frames_in_flight * sizeof(VkSemaphore));
-    // res--; if (!p_win->image_available_semaphores) goto clear;
+    };
 
     VkSemaphoreCreateInfo sema_create_info = {
         .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -459,8 +452,6 @@ OptSemaphores create_semaphores(AllocInterface allocr,
     for_slice(semas.value, i){
       semas.value.data[i] = VK_NULL_HANDLE;
     }
-
-    //for (int i = 0; i < param.semaphores_count; ++i) {
     for_slice(semas.value, i){
 
       result = vkCreateSemaphore(device, &sema_create_info,
@@ -473,9 +464,6 @@ OptSemaphores create_semaphores(AllocInterface allocr,
 
     return semas;
 }
-
-/* void clear_semaphores(const VkAllocationCallbacks* alloc_callbacks, */
-/*                       ClearSemaphoresParam param, int err_codes) { */
 
 OptSemaphores clear_semaphores(AllocInterface allocr,
 			       OptSemaphores semas,
@@ -710,8 +698,8 @@ enum EndRenderingOperationsCodes end_rendering_operations(EndRenderingOperations
         .pCommandBuffers = &param.cmd_buffer,
         .signalSemaphoreCount = 1,
         .pSignalSemaphores = &param.render_done_semaphore,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &param.present_done_semaphore,
+        .waitSemaphoreCount = param.render_wait_semaphores.count,
+        .pWaitSemaphores = param.render_wait_semaphores.data,
         .pWaitDstStageMask =
         &(VkPipelineStageFlags){
             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }

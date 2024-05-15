@@ -54,6 +54,7 @@ struct ImageObj {
   VkImage vk_obj;
   size_t width;
   size_t height;
+  //VkFormat image_format;
   MemoryDesc* backing;
   u32 mem_inx;
 };

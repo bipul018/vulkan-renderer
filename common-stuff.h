@@ -5,6 +5,8 @@
 
 #define UTIL_INCLUDE_ALL 1
 #include <util_headers.h>
+
+
 typedef struct VulkanLayer VulkanLayer;
 struct VulkanLayer {
   const char *layer_name;
@@ -83,16 +85,41 @@ typedef struct{
 
 OptSwapchainDetails choose_swapchain_details(AllocInterface allocr, ChooseSwapchainDetsParam param);
 
+typedef struct VulkanQueue VulkanQueue;
+struct VulkanQueue {
+  //TODO Might need a mutex for multithreaded sync later
+  VkQueue vk_obj;
+  VkCommandPool im_pool;
+  VkCommandBuffer im_buffer;
+  VkFence im_fence;
+  u32 family;
+};
+
+//TODO :: Make a macro to always inittialize the top fail code to -0x7fff and use it everywhere
+//And use a macro to default initialize a opt object by setting it's code value to -0x7fff
+typedef struct{
+  VulkanQueue value;
+  enum{
+    CREATE_VULKAN_QUEUE_TOP_FAIL_CODE = -0x7fff,
+    CREATE_VULKAN_QUEUE_FENCE_CREATE_FAIL,
+    CREATE_VULKAN_QUEUE_CMD_BUFFER_FAIL,
+    CREATE_VULKAN_QUEUE_CMD_POOL_FAIL,
+    CREATE_VULKAN_QUEUE_GET_FAIL,
+    CREATE_VULKAN_QUEUE_OK = 0,
+  } code;
+}OptVulkanQueue;
+
+OptVulkanQueue create_vulkan_queue(VkDevice device, u32 family_inx, u32 queue_inx);
+OptVulkanQueue clear_vulkan_queue(OptVulkanQueue queue, VkDevice device);
+
 typedef struct VulkanDevice VulkanDevice;
 struct VulkanDevice {
   VkPhysicalDevice phy_device;
   VkDevice device;
 
-  VkQueue graphics_queue;
-  uint32_t graphics_family_inx;
-
-  VkQueue present_queue;
-  uint32_t present_family_inx;
+  VulkanQueue graphics;
+  VulkanQueue present;
+  VulkanQueue compute;
 };
 
 typedef struct {
@@ -112,6 +139,7 @@ typedef struct{
     //} value;
   enum {
     CREATE_DEVICE_TOP_FAIL_CODE = -0x7fff,
+    CREATE_DEVICE_QUEUE_ITEM_FAIL,
     CREATE_DEVICE_FAILED ,
     CREATE_DEVICE_PHY_DEVICE_INT_ALLOC_FAIL,
     CREATE_DEVICE_NO_SUITABLE_GPU,
@@ -141,6 +169,11 @@ OptCommandPool create_command_pool(VkDevice device,
 				   uint32_t queue_family_inx);
 
 OptCommandPool clear_command_pool(OptCommandPool cmd_pool, VkDevice device);
+
+// Helpers for immediate command submission on a queue
+//Only call end iff begin was a success
+bool immediate_command_begin(VkDevice device, VulkanQueue queue);
+bool immediate_command_end(VkDevice device, VulkanQueue queue);
 
 
 //Choose an image format if supported, returns VK_FORMAT_UNDEFINED if fails

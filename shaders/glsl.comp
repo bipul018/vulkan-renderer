@@ -1,0 +1,39 @@
+#version 460
+#include "glsl.h"
+
+layout(local_size_x = COMP_X_DIM, local_size_y = COMP_Y_DIM, local_size_z = COMP_Z_DIM) in;
+
+layout(set = 0, binding = COMP_OBJ_BIND) buffer TexCoordBuffer{
+  vec2 coords[];
+}tex_coords;
+
+layout(push_constant) uniform Size{
+  uint size;
+  } push;
+
+void main(){
+  uint inx = gl_GlobalInvocationID.x;
+  if(inx < push.size){
+    tex_coords.coords[inx] = 0.001 + tex_coords.coords[inx];
+  }
+}
+
+// layout(set = COMP_IN_UNI, binding = 0) readonly buffer Input{
+//   float val[];
+// } inside;
+// layout(set = COMP_IN_UNI, binding = 1) buffer Output{
+//   float val[];
+// } outside;
+// layout(push_constant) uniform Size{
+//   uint sz;
+// } push;
+
+
+// void main(){
+//   uint inx = gl_GlobalInvocationID.x;
+  
+//   if(inx < push.sz){
+//     outside.val[inx] = 2 * inside.val[inx];
+//   }
+
+// }

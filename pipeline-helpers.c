@@ -1,9 +1,30 @@
 #include "pipeline-helpers.h"
+#include "util_structures.h"
+#include "vulkan/vulkan_core.h"
 
+
+VkDescriptorSetLayout create_descriptor_set_layout_(VkDevice device,
+						   VkDescriptorSetLayoutCreateFlags flags,
+						   DescBindingSlice bindings){
+
+  VkDescriptorSetLayoutCreateInfo create_info = {
+    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+    .pBindings = bindings.data,
+    .bindingCount = bindings.count,
+    .flags = flags
+  };
+  VkDescriptorSetLayout desc_layout = VK_NULL_HANDLE;
+  VkResult res = vkCreateDescriptorSetLayout(device, &create_info,
+					     get_glob_vk_alloc(),
+					     &desc_layout);
+  if(res != VK_SUCCESS)
+    return VK_NULL_HANDLE;
+  return desc_layout;
+}
 
 DEF_DARRAY(DescSize,1);
 //Will have to handle inline uniform blocks itself
-VkDescriptorPool make_pool(AllocInterface allocr, VkDevice device, DescSetSlice sets){
+VkDescriptorPool make_pool_(AllocInterface allocr, VkDevice device, DescSetSlice sets){
   DescSizeDarray da_list = init_DescSize_darray(allocr);
   DescSizeDarray* ptr = &da_list;
   //Count unique descriptor types
@@ -92,6 +113,22 @@ void write_uniform_descriptor(VkDevice device, VkDescriptorSet set, BufferObj bu
 	   },
     }, 0, nullptr);
 }
+void write_storage_descriptor(VkDevice device, VkDescriptorSet set, BufferObj buffer, int binding){
+  vkUpdateDescriptorSets(device, 1, &(VkWriteDescriptorSet){
+      	   .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	   .dstSet = set,
+	   .dstBinding = binding,
+	   .dstArrayElement = 0,
+	   .descriptorCount = 1,
+	   .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+	   .pBufferInfo = &(VkDescriptorBufferInfo){
+	     .buffer = buffer.vk_obj,
+	     .offset = 0,
+	     .range = buffer.size,
+	   },
+    }, 0, nullptr);
+}
+
 void write_sampler(VkDevice device, VkDescriptorSet set, VkSampler sampler, int binding){
   vkUpdateDescriptorSets(device, 1, &(VkWriteDescriptorSet){
       	   .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -117,6 +154,20 @@ void write_image(VkDevice device, VkDescriptorSet set, VkImageView image, int bi
 	   .pImageInfo = &(VkDescriptorImageInfo){
 	     .imageView = image,
 	     .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+	   },
+    }, 0, nullptr);
+}
+void write_storage_image(VkDevice device, VkDescriptorSet set, VkImageView image, int binding){
+  vkUpdateDescriptorSets(device, 1, &(VkWriteDescriptorSet){
+      	   .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+	   .dstSet = set,
+	   .dstBinding = binding,
+	   .dstArrayElement = 0,
+	   .descriptorCount = 1,
+	   .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+	   .pImageInfo = &(VkDescriptorImageInfo){
+	     .imageView = image,
+	     .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 	   },
     }, 0, nullptr);
 }
@@ -208,234 +259,491 @@ bool vertex_input_add_attribute(VertexInputDesc* vert_desc,u32 location, u32 off
 
 
 
+MemoryItem free_memory_item(MemoryItem item, AllocInterface allocr, GPUAllocr* gpu_allocr, VkDevice device){
+  switch(item.type){
+  case MEMORY_ITEM_TYPE_CPU_BUFFER:{
+    SLICE_FREE(item.cpu_buffer, allocr);
+  }break;
+  case MEMORY_ITEM_TYPE_GPU_BUFFER:{
+    free_buffer(gpu_allocr, (OptBuffer){.value = item.gpu_buffer}, device);
+  }break;
+  case MEMORY_ITEM_TYPE_IMAGE:{
+    free_image(gpu_allocr, (OptImage){.value = item.image.obj}, device);
+  }break;
+  case MEMORY_ITEM_TYPE_NONE:
+    break;
+  }
+  return (MemoryItem){0};
+}
+
+
 typedef VkImageMemoryBarrier2 ImgBarr;
 DEF_DARRAY(ImgBarr,1);
+typedef VkBufferMemoryBarrier2 BuffBarr;
+DEF_DARRAY(BuffBarr, 1);
 
-CopyResult copy_items_to_gpu(AllocInterface allocr, GPUAllocr* gpu_allocr, VkDevice device, CopyInputSlice items, u32 queue_index, VkQueue queue){
-
-  CopyResult result = {0};
-  result.value.stage_bufs = init_BufferObj_darray(allocr);
-  
-  if(VK_SUCCESS != vkCreateFence(device, &(VkFenceCreateInfo){
-        .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
-        .flags = VK_FENCE_CREATE_SIGNALED_BIT,
-      }, get_glob_vk_alloc(), &result.value.fence)){
-    result.code = COPY_ITEMS_TO_GPU_FENCE_CREATE_FAIL;
-    return result;
-  }
-
-  //First collect all layout transitions needed
-  ImgBarrDarray transitions = init_ImgBarr_darray(allocr);
-  for_slice(items, i){
-    if(!items.data[i].is_buffer){
-      if(!push_ImgBarr_darray(&transitions, (ImgBarr){
-	    .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
-	    .srcStageMask = VK_ACCESS_NONE,
-	    .srcAccessMask = VK_ACCESS_NONE,
-	    /* .dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, */
-	    /* .dstAccessMask = VK_ACCESS_SHADER_READ_BIT, */
+static u32 submit_barriers(VkCommandBuffer cmd_buf, ImgBarrDarray* img_barrs,
+			    BuffBarrDarray* buff_barrs, CopyUnitSlice items,
+			    bool is_src, bool is_before,
+			    VkPipelineStageFlags2 stage_mask,
+			    VkPipelineStageFlags2 another_stage_mask,
+			    u32 src_queue_family,
+			    u32 dst_queue_family){
+  u32 barrier_count = 0;
+  u32 last_inx = 0;
+  bool fail_recent = false;
+  while(true){
+    img_barrs->count = 0;
+    buff_barrs->count = 0;
+    for(;last_inx < items.count; last_inx++){
+      MemoryItem unit;
+      MemoryItem other;
+      if(is_src){
+	unit = items.data[last_inx].src;
+	other = items.data[last_inx].dst;
+      }
+      else{
+	unit = items.data[last_inx].dst;
+	other = items.data[last_inx].src;
+      }
+      //Skip cases are if this is cpu buffer, or both src and dst are none 
+      if((unit.type == MEMORY_ITEM_TYPE_CPU_BUFFER) ||
+	 ((unit.type == other.type) && (unit.type == MEMORY_ITEM_TYPE_NONE)))
+	continue;
+      //there is no copy operation is when either of the types are none
+      //or the both types are same along with vulkan handle
+      bool no_copy = ((unit.type == MEMORY_ITEM_TYPE_NONE) ||
+		      (other.type == MEMORY_ITEM_TYPE_NONE));
+      if(unit.type == other.type){
+	if(unit.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
+	  no_copy = no_copy || (unit.gpu_buffer.vk_obj == other.gpu_buffer.vk_obj);
+	}
+	else{
+	  no_copy = no_copy || (unit.image.obj.vk_obj == other.image.obj.vk_obj);
+	}
+      }
+      //A special case of no copy is when src = none, then we process dst in src's turn
+      //  either way, we don't process for dst turn, or if it is not is_before anyway
+      bool no_cpy_alt = no_copy && unit.type == MEMORY_ITEM_TYPE_NONE;
+      if(no_cpy_alt){
+	_swap(unit, other);
+      }
+      if(no_copy && (!is_before || !is_src))
+	continue;
+      BuffBarr common = {
+	    .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+	    .srcQueueFamilyIndex = src_queue_family,
+	    .srcStageMask = stage_mask,
 	    .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
-	    .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-	    .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-	    .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-	    //.newLayout = VK_IMAGE_LAYOUT_GENERAL,
-	    .srcQueueFamilyIndex = queue_index,
-	    .dstQueueFamilyIndex = queue_index,//g_device.graphics_family_inx,
-	    .image = items.data[i].image.vk_obj,
-	    .subresourceRange = {
-	      .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-	      .layerCount = VK_REMAINING_ARRAY_LAYERS,
-	      .levelCount = VK_REMAINING_MIP_LEVELS,
+	    .dstQueueFamilyIndex = dst_queue_family,};
+
+      //So the cases to process are,
+      // A> when no_copy is false,
+      // B> when no_copy is true but no_cpy_alt is false
+      // C> when both are true
+      if(!no_copy){
+	//TODO :: Here we need to account for before or after
+	if(is_src){
+	  common.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+	  common.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+	}
+	else{
+	  common.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT;
+	  common.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+	}
+	if(!is_before){
+	  if(is_src){
+	    _swap(common.srcQueueFamilyIndex, common.dstQueueFamilyIndex);
+	  }
+	  else{
+	    common.srcQueueFamilyIndex = common.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	  }
+	  _swap(common.srcStageMask, common.dstStageMask);
+	  _swap(common.srcAccessMask, common.dstAccessMask);
+	}
+      }
+      else{
+	//In this case, there is never after, but there is + dst stage mask
+	common.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT |
+	  VK_ACCESS_2_MEMORY_WRITE_BIT;
+	common.dstStageMask = another_stage_mask,
+	common.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT |
+	  VK_ACCESS_2_MEMORY_WRITE_BIT;
+	if(!no_cpy_alt){
+	  //When src is none, we don't do any queue ownership transfer
+	  common.srcQueueFamilyIndex = dst_queue_family;
+	}
+      }
+      
+      if(unit.type == MEMORY_ITEM_TYPE_IMAGE){
+	ImgBarr barr = {
+	  .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+	  .srcStageMask = common.srcStageMask,
+	  .srcAccessMask = common.srcAccessMask,
+	  .dstStageMask = common.dstStageMask,
+	  .dstAccessMask = common.dstAccessMask,
+	  .oldLayout = unit.image.layout,
+	  .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+	  .srcQueueFamilyIndex = common.srcQueueFamilyIndex,
+	  .dstQueueFamilyIndex = common.dstQueueFamilyIndex,
+	  .image = unit.image.obj.vk_obj,
+	  .subresourceRange = {
+	    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+	    .layerCount = VK_REMAINING_ARRAY_LAYERS,
+	    .levelCount = VK_REMAINING_MIP_LEVELS,
+	  }
+	};
+	if(!no_copy){
+	  if(!is_src){
+	    barr.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	    barr.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	  }
+	  if(!is_before){
+	    if(is_src){
+	      _swap(barr.oldLayout, barr.newLayout);
 	    }
-	  })){
-	resize_ImgBarr_darray(&transitions, 0);
-	result.code = COPY_ITEMS_TO_GPU_ALLOC_INT_FAIL;
-	goto free_transitions;
+	    else{
+	      barr.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	      barr.newLayout = unit.image.layout;
+	    }
+	  }
+	}
+	else{
+	  barr.oldLayout = items.data[last_inx].src.image.layout;
+	  barr.newLayout = items.data[last_inx].dst.image.layout;
+	}
+	bool push_res = push_ImgBarr_darray(img_barrs, barr);
+	if(push_res){
+	  fail_recent = false;
+	}
+	else{
+	  fail_recent = true;
+	  if(fail_recent){
+	    barrier_count++;
+	    vkCmdPipelineBarrier2(cmd_buf, &(VkDependencyInfo){
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.dependencyFlags = 0,
+		.imageMemoryBarrierCount = 1,
+		.pImageMemoryBarriers = &barr,
+	      });
+	  }
+	  else{
+	    goto submit1;
+	  }
+	}
+	
       }
+      if(unit.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
+	BuffBarr barr = common;
+	barr.buffer = unit.gpu_buffer.vk_obj;
+	barr.offset = 0;
+	barr.size = unit.gpu_buffer.size;
+
+	bool push_res = push_BuffBarr_darray(buff_barrs, barr);
+	if(push_res){
+	  fail_recent = false;
+	}
+	else{
+	  fail_recent = true;
+	  if(fail_recent){
+	    barrier_count++;
+	    vkCmdPipelineBarrier2(cmd_buf, &(VkDependencyInfo){
+		.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+		.dependencyFlags = 0,
+		.bufferMemoryBarrierCount = 1,
+		.pBufferMemoryBarriers = &barr,
+	      });
+	  }
+	  else{
+	    //In this case, set all barreris from both arrays,
+	    goto submit1;
+	    //  reset the size to 0 for both,
+	    //  and start from beginning
+	  }
+	}
+      }
+    
+    }
+  submit1:
+    //Here submit all
+    barrier_count += img_barrs->count + buff_barrs->count;
+    vkCmdPipelineBarrier2(cmd_buf, &(VkDependencyInfo){
+	.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+	.dependencyFlags = 0,
+	.imageMemoryBarrierCount = img_barrs->count,
+	.pImageMemoryBarriers = img_barrs->data,
+	.bufferMemoryBarrierCount = buff_barrs->count,
+	.pBufferMemoryBarriers = buff_barrs->data
+      });
+    if(last_inx >= items.count){
+      break;
     }
   }
+  return barrier_count;
+}
+
+u32 copy_memory_items(MemoryItemDarray* stage_buffers, CopyUnitSlice items,
+		      VkDevice device, CopyMemoryParam param){
+
+  //TODO :: Insert a general memory barrier in case of nothing to copy and exit
+  // Or if there was no barrier to insert in the first one,
+  //Then too, need to do similar
   
+  ImgBarrDarray img_barrs = init_ImgBarr_darray(param.allocr);
+  BuffBarrDarray buff_barrs = init_BuffBarr_darray(param.allocr);
+
+  u32 init_barrs = submit_barriers(param.cmd_buf, &img_barrs,
+				   &buff_barrs, items,
+				   true, true,
+				   param.src_stage_mask,
+				   param.dst_stage_mask,
+				   param.src_queue_family,
+				   param.dst_queue_family);
   
-  if(VK_SUCCESS != vkCreateCommandPool(device,&(VkCommandPoolCreateInfo){
-	.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
-	.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
-	.queueFamilyIndex = queue_index,
-      }, get_glob_vk_alloc(), &result.value.cmd_pool)){
-    result.code = COPY_ITEMS_TO_GPU_COMMAND_POOL_FAIL;
-    goto free_transitions;
+  //So now all src pipeline barriers have been installed, similarly do for destinations
+  
+  init_barrs += submit_barriers(param.cmd_buf, &img_barrs,
+				&buff_barrs, items,
+				false, true,
+				param.src_stage_mask,
+				param.dst_stage_mask,
+				param.src_queue_family,
+				param.dst_queue_family);
+  if(init_barrs == 0){
+    //TODO Insert a single simple pipeline memory barrier here and return
+    vkCmdPipelineBarrier2(param.cmd_buf, &(VkDependencyInfo){
+	.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+	.dependencyFlags = 0,
+	.memoryBarrierCount = 1,
+	.pMemoryBarriers = &(VkMemoryBarrier2){
+	  .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+	  .srcStageMask = param.src_stage_mask,
+	  .dstStageMask = param.dst_stage_mask,
+	  .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT |
+	  VK_ACCESS_2_MEMORY_WRITE_BIT,
+	  .srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT |
+	  VK_ACCESS_2_MEMORY_WRITE_BIT,
+	}
+      });
+    
+    resize_ImgBarr_darray(&img_barrs, 0);
+    resize_BuffBarr_darray(&buff_barrs, 0);
+    return 0;
   }
-  VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
-  if(VK_SUCCESS != vkAllocateCommandBuffers(device, &(VkCommandBufferAllocateInfo){
-	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-	.commandPool = result.value.cmd_pool,
-	.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-	.commandBufferCount = 1,
-      }, &cmd_buf)){
-    result.code = COPY_ITEMS_TO_GPU_COMMAND_BUFFER_FAIL;
-    goto free_transitions;
-  }
-  if(VK_SUCCESS != vkBeginCommandBuffer
-     (cmd_buf, &(VkCommandBufferBeginInfo){
-       .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-       .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-     })){
-    result.code = COPY_ITEMS_TO_GPU_RECORD_BEGIN_FAIL;
-    goto free_transitions;
-  }
+  //Now start copying
+  u32 i = 0;
+  //for_slice(items, i){
+  for_range(, i, 0, items.count){
+    //copy_count = i;
 
+    //Need stage buffer or not
+    bool need_stage = false;
+    //If needed, was the stage buffer for source or destination 
+    bool src_stage = false;
 
-  vkCmdPipelineBarrier2(cmd_buf, &(VkDependencyInfo){
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .dependencyFlags = 0,
-      .imageMemoryBarrierCount = transitions.count,
-      .pImageMemoryBarriers = transitions.data
-    });
+    //All CPU -> CPU transfers are directly done by memcpy immediately
+    MemoryItem src = items.data[i].src;
+    MemoryItem dst = items.data[i].dst;
+    
+    if((src.type == MEMORY_ITEM_TYPE_NONE) ||
+       (dst.type == MEMORY_ITEM_TYPE_NONE))
+      continue;
+    bool same = src.type == dst.type;
 
-  //Create buffers, map  and push into copied_items
-  for_slice(items, i){
-    //Check if staging needed, that is done by trying to map memory
-    BufferObj obj = {0};
-    void* mapping = nullptr;
-    bool was_staged = true;
-    if(items.data[i].is_buffer){
-      mapping = create_mapping_of_buffer(device, *gpu_allocr, items.data[i].buffer);
-      if(mapping != nullptr){
-	obj = items.data[i].buffer;
-	was_staged = false;
-      }
+    if(same && src.type == MEMORY_ITEM_TYPE_CPU_BUFFER){
+      //Only memcpy
+      memcpy(dst.cpu_buffer.data, src.cpu_buffer.data,
+	     _min(dst.cpu_buffer.count, src.cpu_buffer.count));
+      continue;
     }
 
-    if(mapping == nullptr){
-      OptBuffer stage = alloc_buffer(gpu_allocr, device, items.data[i].src.count,
-					(AllocBufferParams){
-					  .props_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-					  .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-					});
+    if(same && (src.type == MEMORY_ITEM_TYPE_GPU_BUFFER) &&
+       (src.gpu_buffer.vk_obj == dst.gpu_buffer.vk_obj))
+      continue;
+    
+    if(same && (src.type == MEMORY_ITEM_TYPE_IMAGE) &&
+       (src.image.obj.vk_obj == dst.image.obj.vk_obj))
+      continue;
+
+
+    //Here need to allocate gpu stage memory, might fail, but then set it to src/dst
+    if((src.type == MEMORY_ITEM_TYPE_CPU_BUFFER) ||
+       (dst.type == MEMORY_ITEM_TYPE_CPU_BUFFER)){
+
+      size_t count = ((src.type == MEMORY_ITEM_TYPE_CPU_BUFFER)?
+		      src.cpu_buffer.count: dst.cpu_buffer.count);
+      
+      OptBuffer stage = alloc_buffer(param.gpu_allocr, device, count,
+				     (AllocBufferParams){
+				       .props_flags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				       .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+				     });
+
       if(stage.code < 0){
-	free_buffer(gpu_allocr, stage, device);
-	result.code = COPY_ITEMS_TO_GPU_ALLOC_STAGING_FAIL;
-	goto free_transitions;
-	//return result;
+	stage = free_buffer(param.gpu_allocr, stage, device);
+	//Need to break out of this with error
+	break;
       }
-      mapping = create_mapping_of_buffer(device, *gpu_allocr, stage.value);
-      obj = stage.value;
-      //push
-      if(!push_BufferObj_darray(&result.value.stage_bufs, stage.value)){
-	flush_mapping_of_buffer(device, *gpu_allocr, stage.value);
-	free_buffer(gpu_allocr, stage, device);
-	result.code = COPY_ITEMS_TO_GPU_ALLOC_RESULT_FAIL;
-	goto free_transitions;
-	//return result;
+      else{
+	//Try to push
+	if(!push_MemoryItem_darray(stage_buffers, (MemoryItem){
+	      .type = MEMORY_ITEM_TYPE_GPU_BUFFER,
+	      .gpu_buffer = stage.value
+	    })){
+	  stage = free_buffer(param.gpu_allocr, stage, device);
+	  break;
+	}
+	else{
+	  if(dst.type == MEMORY_ITEM_TYPE_CPU_BUFFER){
+	    //Push the dst cpu buffer too
+	    if(!push_MemoryItem_darray(stage_buffers, dst)){
+	      break;
+	    }
+	    dst.type = MEMORY_ITEM_TYPE_GPU_BUFFER;
+	    dst.gpu_buffer = stage.value;
+	  }
+	  else{
+	    void* mapping = create_mapping_of_buffer(device, *param.gpu_allocr, stage.value);
+	    assert(mapping != nullptr);
+	    memcpy(mapping, src.cpu_buffer.data, src.cpu_buffer.count);
+	    flush_mapping_of_buffer(device, *param.gpu_allocr, stage.value);
+	    
+	    src.type = MEMORY_ITEM_TYPE_GPU_BUFFER;
+	    src.gpu_buffer = stage.value;
+	  }
+	}
       }
     }
-    memcpy(mapping, items.data[i].src.data, items.data[i].src.count);
-    flush_mapping_of_buffer(device, *gpu_allocr, obj);
 
-    //now write copy commands if needed
-    if(was_staged){
-      if(items.data[i].is_buffer){
-	vkCmdCopyBuffer(cmd_buf, obj.vk_obj, items.data[i].buffer.vk_obj, 1,
+    //Now the cpu buffers have been 'converted' into gpu staging buffers
+
+    //It must be image if not gpu buffer
+    if(src.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
+      if(dst.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
+	vkCmdCopyBuffer(param.cmd_buf, src.gpu_buffer.vk_obj,
+			dst.gpu_buffer.vk_obj, 1,
 			&(VkBufferCopy){
-			  .size = items.data[i].src.count
+			  .srcOffset = 0,
+			  .dstOffset = 0,
+			    .size = _min(src.gpu_buffer.size,
+					 dst.gpu_buffer.size)
 			});
       }
       else{
-	vkCmdCopyBufferToImage(cmd_buf, obj.vk_obj, items.data[i].image.vk_obj,
-			       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-			       &(VkBufferImageCopy){
-				 .imageSubresource = {
-				   .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-				   .layerCount = 1
-				 },
+	assert(dst.type == MEMORY_ITEM_TYPE_IMAGE);
+	vkCmdCopyBufferToImage(param.cmd_buf, src.gpu_buffer.vk_obj,
+			       dst.image.obj.vk_obj,
+			       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			       1, &(VkBufferImageCopy){
 				 .imageExtent = {
 				   .depth = 1,
-				   .width = items.data[i].image.width,
-				   .height = items.data[i].image.height,
-				 }
+				   .width = dst.image.obj.width,
+				   .height = dst.image.obj.height,
+				 },
+				 .imageSubresource = {
+				   .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				   .layerCount = 1,
+				 },
 			       });
       }
     }
+    else{
+      assert(src.type == MEMORY_ITEM_TYPE_IMAGE);
+      if(dst.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
+	vkCmdCopyImageToBuffer(param.cmd_buf, src.image.obj.vk_obj,
+			       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			       dst.gpu_buffer.vk_obj,
+			       1, &(VkBufferImageCopy){
+				 .imageExtent = {
+				   .depth = 1,
+				   .width = src.image.obj.width,
+				   .height = src.image.obj.height,
+				 },
+				 .imageSubresource = {
+				   .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				   .layerCount = 1,
+				 },
+			       });
+      }
+      else{
+	assert(src.type == MEMORY_ITEM_TYPE_IMAGE);
+	//Only single planar 2D color images can be copied here,
+	//If multiplanar images {i think cubemaps?} are used, do it separately
+	vkCmdCopyImage(param.cmd_buf, src.image.obj.vk_obj,
+		       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		       dst.image.obj.vk_obj,
+		       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		       1, &(VkImageCopy){
+			 .extent = {
+			   .depth = 1,
+			   .width = _min(src.image.obj.width, dst.image.obj.width),
+			   .height = _min(src.image.obj.height, dst.image.obj.height),
+			 },
+			 .srcSubresource = {
+			   .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			   .layerCount = 1,
+			 },
+			 .dstSubresource = {
+			   .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+			   .layerCount = 1,
+			 },
+		       });
+      }
+    }
   }
-  //Change the layouts again
-  for_slice(transitions, i){
-    transitions.data[i].srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    transitions.data[i].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    transitions.data[i].dstStageMask = VK_PIPELINE_STAGE_NONE;
-    transitions.data[i].dstAccessMask = VK_ACCESS_NONE;
-    transitions.data[i].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    transitions.data[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  }
 
-
-  vkCmdPipelineBarrier2(cmd_buf, &(VkDependencyInfo){
-      .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-      .dependencyFlags = 0,
-      .imageMemoryBarrierCount = transitions.count,
-      .pImageMemoryBarriers = transitions.data
-    });
-
- free_transitions:
-  //Free transitions here ??
-  (void)resize_ImgBarr_darray(&transitions, 0);
-
-  if(result.code < 0){
-    return result;
-  }
   
-  //End submission
-  if(VK_SUCCESS != vkEndCommandBuffer(cmd_buf)){
-    result.code = COPY_ITEMS_TO_GPU_RECORD_END_FAIL;
-    return result;
-  }
-
-  //Transition the fence state
-  if(VK_SUCCESS != vkResetFences(device, 1, &result.value.fence)){
-    result.code = COPY_ITEMS_TO_GPU_RESET_FENCE_FAIL;
-    return result;
-  }
-
-  if(VK_SUCCESS != vkQueueSubmit2
-     (queue, 1, &(VkSubmitInfo2){
-       .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-       .commandBufferInfoCount = 1,
-       .pCommandBufferInfos = &(VkCommandBufferSubmitInfo){
-	 .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-	 .commandBuffer = cmd_buf,
-       }
-     }, result.value.fence)){
-    result.code = COPY_ITEMS_TO_GPU_SUBMIT_FAIL;
-    return result;
-  }
-
-  return result;
+  submit_barriers(param.cmd_buf, &img_barrs,
+		  &buff_barrs, items,
+		  true, false,
+		  param.dst_stage_mask,
+		  param.src_stage_mask,
+		  param.src_queue_family,
+		  param.dst_queue_family);
+  
+  //So now all src pipeline barriers have been installed, similarly do for destinations
+  
+  submit_barriers(param.cmd_buf, &img_barrs,
+		  &buff_barrs, items,
+		  false, false,
+		  param.dst_stage_mask,
+		  param.src_stage_mask,
+		  param.src_queue_family,
+		  param.dst_queue_family);
+  
+  resize_ImgBarr_darray(&img_barrs, 0);
+  resize_BuffBarr_darray(&buff_barrs, 0);
+  
+  return i;
 }
 
-CopyResult copy_items_to_gpu_wait(VkDevice device, GPUAllocr* gpu_allocr, CopyResult copy_result){
-  switch(copy_result.code){
-  case COPY_ITEMS_TO_GPU_OK:
-    (void)vkWaitForFences(device, 1, &copy_result.value.fence, VK_TRUE, UINT64_MAX);
-  case COPY_ITEMS_TO_GPU_SUBMIT_FAIL:
-  case COPY_ITEMS_TO_GPU_RESET_FENCE_FAIL:
-  case COPY_ITEMS_TO_GPU_RECORD_END_FAIL:
-  case COPY_ITEMS_TO_GPU_ALLOC_RESULT_FAIL:
-  case COPY_ITEMS_TO_GPU_ALLOC_STAGING_FAIL:
-    
-    for_slice(copy_result.value.stage_bufs, i){
-      free_buffer(gpu_allocr, (OptBuffer){
-	  .value = copy_result.value.stage_bufs.data[i]
-	}, device);
-    }
-    (void)resize_BufferObj_darray(&copy_result.value.stage_bufs, 0);
-  case COPY_ITEMS_TO_GPU_RECORD_BEGIN_FAIL:
-  case COPY_ITEMS_TO_GPU_COMMAND_BUFFER_FAIL:
-    vkDestroyCommandPool(device, copy_result.value.cmd_pool, get_glob_vk_alloc());
-  case COPY_ITEMS_TO_GPU_COMMAND_POOL_FAIL:
+void finish_copying_items(MemoryItemDarray* stage_buffers, VkDevice device, GPUAllocr* gpu_allocr){
 
-  case COPY_ITEMS_TO_GPU_ALLOC_INT_FAIL:
-    vkDestroyFence(device, copy_result.value.fence, get_glob_vk_alloc());
-  case COPY_ITEMS_TO_GPU_FENCE_CREATE_FAIL:
-  case COPY_ITEMS_TO_GPU_TOP_FAIL_CODE:
-    copy_result = (CopyResult){.code = COPY_ITEMS_TO_GPU_TOP_FAIL_CODE};
+  if(stage_buffers == nullptr){
+    return;
   }
-  return copy_result;
+
+  for_slice((*stage_buffers), i){
+
+    MemoryItem pop_item = stage_buffers->data[i];
+    
+    //Check if next is a cpu buffer
+    if(((i+1) < stage_buffers->count) &&
+       (stage_buffers->data[i+1].type == MEMORY_ITEM_TYPE_CPU_BUFFER)){
+
+      void* mapping = create_mapping_of_buffer(device, *gpu_allocr,
+					       stage_buffers->data[i].gpu_buffer);
+      assert(mapping != nullptr);
+      memcpy(stage_buffers->data[i+1].cpu_buffer.data, mapping,
+	     _min(stage_buffers->data[i+1].cpu_buffer.count,
+		  stage_buffers->data[i].gpu_buffer.size));
+      flush_mapping_of_buffer(device, *gpu_allocr,
+			      stage_buffers->data[i].gpu_buffer);
+      i++;
+    }
+
+    free_buffer(gpu_allocr, (OptBuffer){.value = pop_item.gpu_buffer}, device);
+  }
+
+  resize_MemoryItem_darray(stage_buffers, 0);
 }

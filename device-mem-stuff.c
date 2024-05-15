@@ -411,6 +411,7 @@ OptImage alloc_image(GPUAllocr* gpu_allocr, VkDevice device, size_t width, size_
   image.value.width = width;
   image.value.height = height;
   image.value.mem_inx = allocd.inx;
+  //image.value.image_format = params.image_format;
   allocd.mem->id = image.value.vk_obj;
 
   //Now bind memory

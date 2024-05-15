@@ -199,7 +199,8 @@ typedef struct {
   VkCommandBuffer cmd_buffer;
 
   VkSemaphore render_done_semaphore;
-  VkSemaphore present_done_semaphore;
+  VkSemaphoreSlice render_wait_semaphores;
+  //VkSemaphore present_done_semaphore;
   VkFence render_done_fence;
 
   VkQueue graphics_queue;

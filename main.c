@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "common-stuff.h"
+#include "vulkan/vulkan_core.h"
 #include "window-stuff.h"
 #include "render-stuff.h"
 #include "device-mem-stuff.h"
@@ -226,7 +227,7 @@ int main(){
 
   //On graphics queue, error passed through to command buffers
   OptCommandPool cmd_pool = create_command_pool(device.value.device,
-						device.value.graphics_family_inx);
+						device.value.graphics.family);
 
   OptPrimaryCommandBuffers cmd_bufs = create_primary_command_buffers
     (allocr, device.value.device, cmd_pool, max_frames_in_flight);
@@ -238,7 +239,7 @@ int main(){
   //Here pipelines and descriptors and gpu memories are initialized
   // later move everything above away maybe eh
 
-  init_stuff(device.value, allocr, render_pass.value, max_frames_in_flight);
+  init_stuff(&device.value, allocr, render_pass.value, max_frames_in_flight);
   printf("Inited stuff\n");
   
   //Now rendering loop needed
@@ -296,7 +297,14 @@ int main(){
 		      .extent = swap_extent
 		    });
 
-    render_stuff(curr_frame, cmd_bufs.value.data[curr_frame]);
+    VkSemaphore extra_sema = render_stuff(curr_frame, cmd_bufs.value.data[curr_frame]);
+
+    VkSemaphoreSlice rndr_wait = {0};
+    
+    rndr_wait = MAKE_ARRAY_SLICE(VkSemaphore, present_done_semas.value.data[curr_frame], extra_sema);
+
+    if(VK_NULL_HANDLE == extra_sema)
+      rndr_wait.count--;
     
     //end_rendering
     int end_code = end_rendering_operations
@@ -305,9 +313,10 @@ int main(){
 	.cmd_buffer = cmd_bufs.value.data[curr_frame],
 	.render_done_fence = frame_fences.value.data[curr_frame],
 	.render_done_semaphore = render_finised_semas.value.data[curr_frame],
-	.present_done_semaphore = present_done_semas.value.data[curr_frame],
-	.graphics_queue = device.value.graphics_queue,
-	.present_queue = device.value.present_queue,
+	.render_wait_semaphores = rndr_wait,
+	//.present_done_semaphore = present_done_semas.value.data[curr_frame],
+	.graphics_queue = device.value.graphics.vk_obj,
+	.present_queue = device.value.present.vk_obj,
 	.swapchain = swap_entity.value.swapchain,
 	.img_index = img_inx
       });

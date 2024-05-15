@@ -19,25 +19,17 @@ u32 get_pipe1_texture_set(void){
 VkDescriptorSetLayout get_pipe1_translate_layout(VkDevice device){
   if(g_layouts[get_pipe1_translate_set()] != VK_NULL_HANDLE)
     return g_layouts[get_pipe1_translate_set()];
-  VkDescriptorSetLayoutBinding bindings[] = {
-    {
-      .binding = 0,
-      .descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK,
-      .descriptorCount= sizeof(Vec2),
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-    }
-  };
-  VkDescriptorSetLayoutCreateInfo create_info = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-    .pBindings = bindings,
-    .bindingCount = _countof(bindings),
-  };
-  if(VK_SUCCESS != vkCreateDescriptorSetLayout(device,
-					       &create_info,
-					       get_glob_vk_alloc(),
-					       &g_layouts[get_pipe1_translate_set()])){
-    g_layouts[get_pipe1_translate_set()] = VK_NULL_HANDLE;
-  }
+
+  g_layouts[get_pipe1_translate_set()] =
+    create_descriptor_set_layout
+    (device, 0,
+     {
+       .binding = 0,
+       .descriptorType = VK_DESCRIPTOR_TYPE_INLINE_UNIFORM_BLOCK,
+       .descriptorCount= sizeof(Vec2),
+       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+     });
+  
   return g_layouts[get_pipe1_translate_set()];
 }
 const DescSizeSlice get_pipe1_translate_bindings(void){
@@ -53,26 +45,16 @@ const DescSizeSlice get_pipe1_translate_bindings(void){
 VkDescriptorSetLayout get_pipe1_rotate_layout(VkDevice device){
   if(g_layouts[get_pipe1_rotate_set()] != VK_NULL_HANDLE)
     return g_layouts[get_pipe1_rotate_set()];
-  VkDescriptorSetLayoutBinding bindings[] = {
-    {
-      .binding = 0,
-      .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-      .descriptorCount = 1,
-      .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-    }
-  };
-  VkDescriptorSetLayoutCreateInfo create_info = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-    .pBindings = bindings,
-    .bindingCount = _countof(bindings),
-    .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
-  };
-  if(VK_SUCCESS != vkCreateDescriptorSetLayout(device,
-					       &create_info,
-					       get_glob_vk_alloc(),
-					       &g_layouts[get_pipe1_rotate_set()])){
-    g_layouts[get_pipe1_rotate_set()] = VK_NULL_HANDLE;
-  }
+
+  g_layouts[get_pipe1_rotate_set()] = create_descriptor_set_layout
+    (device, VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT_KHR,
+     {
+       .binding = 0,
+       .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+       .descriptorCount = 1,
+       .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+     });
+  
   return g_layouts[get_pipe1_rotate_set()];
 }
 //This returns 0 as push descriptors aren't supposed to be allocated
@@ -90,29 +72,19 @@ const DescSizeSlice get_pipe1_rotate_bindings(void){
 VkDescriptorSetLayout get_pipe1_texture_layout(VkDevice device){
   if(g_layouts[get_pipe1_texture_set()] != VK_NULL_HANDLE)
     return g_layouts[get_pipe1_texture_set()];
-  VkDescriptorSetLayoutBinding bindings[] = {
-    {.binding = 0,
-     .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
-     .descriptorCount= 1,
-     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-    },
-    {.binding = 1,
-     .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-     .descriptorCount= 1,
-     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-    },
-  };
-  VkDescriptorSetLayoutCreateInfo create_info = {
-    .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-    .pBindings = bindings,
-    .bindingCount = _countof(bindings),
-  };
-  if(VK_SUCCESS != vkCreateDescriptorSetLayout(device,
-					       &create_info,
-					       get_glob_vk_alloc(),
-					       &g_layouts[get_pipe1_texture_set()])){
-    g_layouts[get_pipe1_texture_set()] = VK_NULL_HANDLE;
-  }
+  g_layouts[get_pipe1_texture_set()] = create_descriptor_set_layout
+    (device, 0,
+     {.binding = 0,
+      .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER,
+      .descriptorCount= 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+     },
+     {.binding = 1,
+      .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+      .descriptorCount= 1,
+      .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+     });
+
   return g_layouts[get_pipe1_texture_set()];
 }
 const DescSizeSlice get_pipe1_texture_bindings(void){

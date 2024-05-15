@@ -1,4 +1,5 @@
 #include "common-stuff.h"
+#include "vulkan/vulkan_core.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -311,6 +312,7 @@ struct PhyDeviceTest{
   bool accepted;
   u32 graphics_family;
   u32 present_family;
+  u32 compute_family;
   VkFormat depth_stencil_format;
   VkSurfaceFormatKHR img_format;
   uint32_t min_img_count;
@@ -418,6 +420,7 @@ test_physical_device(AllocInterface allocr,
   /*                    (family_count * sizeof *families), 1); */
   bool graphics_avail = false;
   bool present_avail = false;
+  bool compute_avail = false;
 
   if(nullptr != families.data){
     vkGetPhysicalDeviceQueueFamilyProperties(phy_dev, &family_count, families.data);
@@ -426,7 +429,7 @@ test_physical_device(AllocInterface allocr,
     //for (int jj = 0; jj < family_count; ++jj) {
     for_slice(families, jj){
       int j = family_count - jj - 1;
-      j = jj;
+      //j = jj;
 
       VkBool32 present_capable;
       vkGetPhysicalDeviceSurfaceSupportKHR(phy_dev, j,
@@ -437,14 +440,18 @@ test_physical_device(AllocInterface allocr,
 	output.graphics_family = j;
 	graphics_avail = true;
       }
-
+      if ((families.data[j].queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+	  !compute_avail) {
+	output.compute_family = j;
+	compute_avail = true;
+      }
       if (present_capable && !present_avail) {
 	output.present_family = j;
 	present_avail = true;
       }
 
       // break if all is available
-      if (graphics_avail && present_avail)
+      if (graphics_avail && present_avail && compute_avail)
 	break;
     }
   }
@@ -452,7 +459,7 @@ test_physical_device(AllocInterface allocr,
   SLICE_FREE(families, allocr);
  
   // Check if all is filled
-  if (!graphics_avail || !present_avail){
+  if (!graphics_avail || !present_avail || !compute_avail){
     //continue;
     output.accepted = false;
   }
@@ -552,8 +559,9 @@ OptVulkanDevice create_device(const AllocInterface allocr,
 
     if(test_results.accepted){
       output.value.phy_device = phy_devices.data[i];
-      output.value.graphics_family_inx = test_results.graphics_family;
-      output.value.present_family_inx = test_results.present_family;
+      output.value.graphics.family = test_results.graphics_family;
+      output.value.present.family = test_results.present_family;
+      output.value.compute.family = test_results.compute_family;
       if(param.p_depth_stencil_format)
 	*param.p_depth_stencil_format = test_results.depth_stencil_format;
       if(param.p_img_format)
@@ -620,20 +628,28 @@ OptVulkanDevice create_device(const AllocInterface allocr,
   }
 
   float queue_priorities = 1.f;
-  VkDeviceQueueCreateInfo queue_create_infos[2];
-  uint32_t queue_create_count = 1;
-  queue_create_infos[0] = (VkDeviceQueueCreateInfo){
+  VkDeviceQueueCreateInfo queue_create_infos[3];
+  u32 queue_create_count = 0;
+  queue_create_infos[queue_create_count] = (VkDeviceQueueCreateInfo){
     .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
     .queueCount = 1,
-    .queueFamilyIndex = output.value.graphics_family_inx,
+    .queueFamilyIndex = output.value.graphics.family,
     .pQueuePriorities = &queue_priorities
   };
+  queue_create_count++;
   // Make a nested if for this case, it's handleable anyways
-  if (output.value.present_family_inx != output.value.graphics_family_inx) {
+  if (output.value.present.family != output.value.graphics.family) {
+    queue_create_infos[queue_create_count] = queue_create_infos[0];
+    queue_create_infos[queue_create_count].queueFamilyIndex =
+      output.value.present.family;
     queue_create_count++;
-    queue_create_infos[1] = queue_create_infos[0];
-    queue_create_infos[1].queueFamilyIndex =
-      output.value.present_family_inx;
+  }
+  if((output.value.compute.family != output.value.present.family) &&
+     (output.value.compute.family != output.value.graphics.family)){
+    queue_create_infos[queue_create_count] = queue_create_infos[0];
+    queue_create_infos[queue_create_count].queueFamilyIndex =
+      output.value.compute.family;
+    queue_create_count++;
   }
 
   // When required, create the device features, layers check and
@@ -659,26 +675,45 @@ OptVulkanDevice create_device(const AllocInterface allocr,
     output.code = CREATE_DEVICE_FAILED;
   }
   else{
-    vkGetDeviceQueue(output.value.device, output.value.graphics_family_inx,
-		     0, &output.value.graphics_queue);
-    vkGetDeviceQueue(output.value.device, output.value.present_family_inx,
-		     0, &output.value.present_queue);
+
+    OptVulkanQueue graphics = create_vulkan_queue(output.value.device,
+						  output.value.graphics.family,
+						  0);
+    OptVulkanQueue compute = create_vulkan_queue(output.value.device,
+						 output.value.compute.family,
+						 0);
+    OptVulkanQueue present = create_vulkan_queue(output.value.device,
+						 output.value.present.family,
+						 0);
+    if((graphics.code < 0) || (compute.code < 0) || (present.code < 0)){
+      output.code = CREATE_DEVICE_QUEUE_ITEM_FAIL;
+      compute = clear_vulkan_queue(compute, output.value.device);
+      graphics = clear_vulkan_queue(graphics, output.value.device);
+      present = clear_vulkan_queue(present, output.value.device);
+    }
+    output.value.compute = compute.value;
+    output.value.graphics = graphics.value;
+    output.value.present = present.value;
   }
-  /* param.p_vk_device->graphics_family_inx = graphics_family; */
-  /* param.p_vk_device->present_family_inx = present_family; */
 
   SLICE_FREE(extensions_list, allocr);
   SLICE_FREE(layers_list, allocr);
-    
   return output;
 }
-/* void clear_device(const VkAllocationCallbacks* alloc_callbacks, */
-/*                   ClearDeviceParam param, int err_codes) { */
+
 OptVulkanDevice clear_device(OptVulkanDevice vk_device){
   
   switch (vk_device.code) {
   case CREATE_DEVICE_OK:
-
+    (void)clear_vulkan_queue((OptVulkanQueue){.value = vk_device.value.compute},
+			     vk_device.value.device);
+    
+    (void)clear_vulkan_queue((OptVulkanQueue){.value = vk_device.value.graphics},
+			     vk_device.value.device);
+    
+    (void)clear_vulkan_queue((OptVulkanQueue){.value = vk_device.value.present},
+			     vk_device.value.device);
+  case CREATE_DEVICE_QUEUE_ITEM_FAIL:    
     vkDestroyDevice(vk_device.value.device, get_glob_vk_alloc());
   case CREATE_DEVICE_FAILED:
   case CREATE_DEVICE_PHY_DEVICE_INT_ALLOC_FAIL:
@@ -690,6 +725,66 @@ OptVulkanDevice clear_device(OptVulkanDevice vk_device){
     vk_device = (OptVulkanDevice){0};
   }
   return vk_device;
+}
+
+
+OptVulkanQueue create_vulkan_queue(VkDevice device, u32 family_inx, u32 queue_inx){
+  OptVulkanQueue queue = {0};
+
+  vkGetDeviceQueue(device, family_inx, queue_inx, &queue.value.vk_obj);
+  if(VK_NULL_HANDLE == queue.value.vk_obj){
+    queue.code = CREATE_VULKAN_QUEUE_GET_FAIL;
+    return queue;
+  }
+
+  queue.value.family = family_inx;
+  OptCommandPool cmd_pool = create_command_pool(device, family_inx);
+  if(cmd_pool.code == CREATE_COMMAND_POOL_FAILED){
+    queue.code = CREATE_VULKAN_QUEUE_CMD_POOL_FAIL;
+    return queue;
+  }
+  assert(cmd_pool.code == CREATE_COMMAND_POOL_OK);
+  queue.value.im_pool = cmd_pool.value;
+  VkResult res = VK_SUCCESS;
+
+  res = vkAllocateCommandBuffers(device, &(VkCommandBufferAllocateInfo){
+      .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+      .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+      .commandBufferCount = 1,
+      .commandPool = cmd_pool.value,
+    }, &queue.value.im_buffer);
+  
+  if(VK_SUCCESS != res){
+    queue.code = CREATE_VULKAN_QUEUE_CMD_BUFFER_FAIL;
+    return queue;
+  }
+  res = vkCreateFence(device, &(VkFenceCreateInfo){
+      .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+    },
+    get_glob_vk_alloc(), &queue.value.im_fence);
+
+  if(VK_SUCCESS != res){
+    queue.code = CREATE_VULKAN_QUEUE_FENCE_CREATE_FAIL;
+  }
+  return queue;
+}
+
+OptVulkanQueue clear_vulkan_queue(OptVulkanQueue queue, VkDevice device){
+  switch(queue.code){
+  case CREATE_VULKAN_QUEUE_OK:
+    
+    vkDestroyFence(device, queue.value.im_fence, get_glob_vk_alloc());
+  case CREATE_VULKAN_QUEUE_FENCE_CREATE_FAIL:
+  case CREATE_VULKAN_QUEUE_CMD_BUFFER_FAIL:
+
+    clear_command_pool((OptCommandPool){.value = queue.value.im_pool}, device);
+  case CREATE_VULKAN_QUEUE_CMD_POOL_FAIL:
+  case CREATE_VULKAN_QUEUE_GET_FAIL:
+    
+  case CREATE_VULKAN_QUEUE_TOP_FAIL_CODE:
+    queue = (OptVulkanQueue){.code = CREATE_VULKAN_QUEUE_TOP_FAIL_CODE};
+  }
+  return queue;
 }
 
 /* int create_command_pool(StackAllocator* stk_allocr, size_t stk_offset, */
@@ -727,6 +822,46 @@ OptCommandPool clear_command_pool(OptCommandPool cmd_pool, VkDevice device){
   }
   return cmd_pool;
 }
+
+
+bool immediate_command_begin(VkDevice device, VulkanQueue queue){
+  VkCommandBufferBeginInfo cmd_begin_info = {
+    .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+    .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+  };
+  VkResult res = vkBeginCommandBuffer(queue.im_buffer,
+				      &cmd_begin_info);		
+
+  return res == VK_SUCCESS;
+}
+bool immediate_command_end(VkDevice device, VulkanQueue queue){
+  VkResult res = VK_SUCCESS;  
+  //End recordig
+  res = vkEndCommandBuffer(queue.im_buffer);
+  if(res != VK_SUCCESS)
+    return false;
+  //Reset fence
+  res = vkResetFences(device, 1, &queue.im_fence);
+  if(res != VK_SUCCESS)
+    return false;
+  //Submit to queue
+  res = vkQueueSubmit2(queue.vk_obj, 1, &(VkSubmitInfo2){
+      .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+      .commandBufferInfoCount = 1,
+      .pCommandBufferInfos = &(VkCommandBufferSubmitInfo){
+	.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+	.commandBuffer = queue.im_buffer,
+      },
+    }, queue.im_fence);
+  if(res != VK_SUCCESS)
+    return false;
+  //Wait for fence
+
+  res = vkWaitForFences(device, 1, &queue.im_fence, VK_TRUE, UINT64_MAX);
+
+  return res == VK_SUCCESS;
+}
+
 VkFormat choose_image_format(VkPhysicalDevice phy_device,
 			     VkFormatSlice format_candidates,
                              VkImageTiling img_tiling, VkFormatFeatureFlags format_flags){

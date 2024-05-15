@@ -1,10 +1,12 @@
-#version 450
-#extension GL_EXT_debug_printf : enable
+#version 460
 #include "glsl.h"
+#extension GL_EXT_debug_printf : enable
+
 
 layout (location = 0) in vec2 inVertPos;
+layout (location = 1) in vec2 inTexPos;
 layout (location = 0) out vec4 outVertPos;
-layout (location = 1) out vec2 ogPos;
+layout (location = 1) out vec2 outTexPos;
 
 layout (set = TRANSLATE_UNI_LOCATION, binding = 0) uniform UniformData {
        vec2 translate;
@@ -31,7 +33,8 @@ void main()
   outVertPos = vec4(  rotmat*inVertPos + unf.translate , 0.5f, 1.0f);
   //outVertPos = vec4(inVertPos, 0.5f, 1.0f);
   //outVertPos = vec4(inVertPos + unf.translate, 0.5f, 1.0f);
-  ogPos = 2* inVertPos;
+  //ogPos = 5* inVertPos;
+  outTexPos = inTexPos;
   gl_Position = outVertPos;
   //debugPrintfEXT("Hello from vertex shader");
 }

@@ -6,7 +6,6 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdbool.h>
-
 #define VEC_API static inline
 
 #define swap_stuff(type, a, b)                                       \
@@ -30,6 +29,23 @@ union Vec2 {
     };
 };
 typedef union Vec2 Vec2;
+
+
+VEC_API Vec2 vec2_sub(Vec2 a, Vec2 b) {
+    return (Vec2){ a.x - b.x, a.y - b.y};
+}
+
+VEC_API Vec2 vec2_add(Vec2 a, Vec2 b) {
+    return (Vec2){ a.x + b.x, a.y + b.y };
+}
+
+VEC_API Vec2 vec2_scale_fl(Vec2 v, float s) {
+    return (Vec2){ v.x * s, v.y * s };
+}
+
+VEC_API Vec2 vec2_scale_vec(Vec2 v1, Vec2 v2) {
+  return (Vec2){ v1.x * v2.x, v1.y * v2.y};
+}
 
 union Vec3 {
     float comps[3];

@@ -4,7 +4,12 @@ set(Project "vulk-app")
 project(${Project} LANGUAGES C)
 
 
-# Set binary directory name here
+
+#if (MSVC)
+#    add_compile_options(/W4 /fsanitize=address)
+#else()
+#    add_compile_options(-Wall -Wextra -Wpedantic -fsanitize=address)
+#endif()
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib>)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib>)
@@ -23,8 +28,11 @@ target_sources(${Project} PRIVATE
 		   LooplessSizeMove.c
 		   stuff.c
 		   pipe1.c
-		   pipeline-helpers.c)
+		   pipeline-helpers.c
+		   compute-test.c
+		   compute-interface.c)
 
+# TODO:: Maybe later this can be better solved using INTERFACE
 target_sources(${Project} PRIVATE common-stuff.h
 		     render-stuff.h
 		     window-stuff.h
@@ -32,7 +40,10 @@ target_sources(${Project} PRIVATE common-stuff.h
 		     LooplessSizeMove.h
 		     stuff.h
 		     pipe1.h
-		     pipeline-helpers.h)
+		     pipeline-helpers.h
+		     compute-interface.h
+		     compute-test.h)
+
 
 target_include_directories(${Project} PRIVATE ${PROJECT_SOURCE_DIR}
 			       "${PROJECT_SOURCE_DIR}/../utilities"
@@ -65,6 +76,7 @@ endfunction()
 
 add_shader_step(shaders "shaders/glsl.vert" "shaders/glsl.h")
 add_shader_step(shaders "shaders/glsl.frag" "shaders/glsl.h")
+add_shader_step(shaders "shaders/glsl.comp" "shaders/glsl.h")
 target_sources(${Project} PRIVATE "shaders/glsl.h")
 
 add_dependencies(${Project} shaders)
