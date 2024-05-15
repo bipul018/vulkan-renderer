@@ -11,15 +11,25 @@ typedef struct TestComputeData TestComputeData;
 struct TestComputeData {
   VkDescriptorSetLayout desc_layout;
   VkDescriptorPool desc_pool;
-  VkDescriptorSet desc_set;
-  VkPipelineLayout pipe_layout;
-  VkPipeline pipeline;
+  
+  VkDescriptorSet desc_set1;
+  VkDescriptorSet desc_set2;
+  VkDescriptorSet desc_set3;
+  
+  VkPipelineLayout pipe_layout1;
+  VkPipeline pipeline1;
+
+  VkPipelineLayout pipe_layout2;
+  VkPipeline pipeline2;
+  
   VkCommandPool cmd_pool;
   VkCommandBuffer cmd_buffer;
 
   MemoryItemSlice items;
   VkFormatSlice img_formats;
   u32Slice item_usages;
+
+  timespec last_frame_time;
   u32 item_count;
 };
 
@@ -46,7 +56,7 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
   //Create descriptor pool
   data->desc_pool = make_pool
     (params->allocr, params->device,
-     {.count = 1,
+     {.count = 3,
       .descs = MAKE_ARRAY_SLICE(DescSize,
 				{.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
 				 .descriptorCount = 1 })
@@ -71,16 +81,44 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
       }
     };
     VkResult res = vkCreatePipelineLayout(params->device, &info, get_glob_vk_alloc(),
-					  &data->pipe_layout);
+					  &data->pipe_layout1);
     if(res != VK_SUCCESS){
-      data->pipe_layout = VK_NULL_HANDLE;
+      data->pipe_layout1 = VK_NULL_HANDLE;
+      return output;
+    }
+  }
+
+  {
+    VkPipelineLayoutCreateInfo info = {
+      .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+	.setLayoutCount = 2,
+	.pSetLayouts = (VkDescriptorSetLayout[]){data->desc_layout, data->desc_layout},
+	.pushConstantRangeCount = 1,
+	.pPushConstantRanges = &(VkPushConstantRange){
+	  .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+	  .offset = 0,
+	  .size = sizeof(u32)+sizeof(float),
+	}
+    };
+    VkResult res = vkCreatePipelineLayout(params->device, &info, get_glob_vk_alloc(),
+					  &data->pipe_layout2);
+    if(res != VK_SUCCESS){
+      data->pipe_layout1 = VK_NULL_HANDLE;
       return output;
     }
   }
   
   //Allocate descriptors
-  data->desc_set = alloc_set(params->device, data->desc_pool, data->desc_layout);
-  if(VK_NULL_HANDLE == data->desc_set )
+  data->desc_set1 = alloc_set(params->device, data->desc_pool, data->desc_layout);
+  if(VK_NULL_HANDLE == data->desc_set1 )
+    return output;
+
+  data->desc_set2 = alloc_set(params->device, data->desc_pool, data->desc_layout);
+  if(VK_NULL_HANDLE == data->desc_set2 )
+    return output;
+
+  data->desc_set3 = alloc_set(params->device, data->desc_pool, data->desc_layout);
+  if(VK_NULL_HANDLE == data->desc_set3 )
     return output;
 
   //Create shaders
@@ -97,7 +135,7 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
 
     VkComputePipelineCreateInfo info = {
       .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
-      .layout = data->pipe_layout,
+      .layout = data->pipe_layout1,
       .stage = {
 	.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
 	.stage = VK_SHADER_STAGE_COMPUTE_BIT,
@@ -108,10 +146,43 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
     VkResult res = vkCreateComputePipelines(params->device, VK_NULL_HANDLE,
 					    1, &info,
 					    get_glob_vk_alloc(),
-					    &data->pipeline);
+					    &data->pipeline1);
 
     if(VK_SUCCESS != res){
-      data->pipeline = VK_NULL_HANDLE;
+      data->pipeline1 = VK_NULL_HANDLE;
+    }
+    
+    vkDestroyShaderModule(params->device, shader.value, get_glob_vk_alloc());
+  }
+
+  shader = create_shader_module_from_file
+    (params->allocr,
+     params->device,
+     "./shaders/nbody.comp.spv");
+  
+  //Create compute pipeline
+  if(shader.code < 0){
+    return output;
+  }
+  {
+
+    VkComputePipelineCreateInfo info = {
+      .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+      .layout = data->pipe_layout2,
+      .stage = {
+	.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+	.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+	.module = shader.value,
+	.pName = "main"
+      },
+    };
+    VkResult res = vkCreateComputePipelines(params->device, VK_NULL_HANDLE,
+					    1, &info,
+					    get_glob_vk_alloc(),
+					    &data->pipeline2);
+
+    if(VK_SUCCESS != res){
+      data->pipeline2 = VK_NULL_HANDLE;
     }
     
     vkDestroyShaderModule(params->device, shader.value, get_glob_vk_alloc());
@@ -149,55 +220,88 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
 
   //Just one , number of data is provided as any_init_param pointing to a size_t variable holding count
 
+  //Expects an array of 3 such slices
+  //First slice is texture coords
+  //Second slice is vert coords
+  //Third slice is velocities
   Vec2Slice* init_data = any_init_param;
-  if((nullptr == init_data) || (init_data->count == 0))
+  if((nullptr == init_data) || (init_data[0].count == 0) ||
+     (init_data[1].count == 0) || (init_data[2].count == 0))
     return output;
 
   data->item_count = init_data->count;
     
-  OptBuffer actual_buffer = alloc_buffer
-    (params->gpu_allocr, params->device,
-     Vec2_slice_bytes(*init_data), (AllocBufferParams){
-      .props_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-      .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-    });
-
-  if(actual_buffer.code < 0){
-    free_buffer(params->gpu_allocr, actual_buffer, params->device);
-    return output;
+  OptBuffer actual_buffers[3] = {0};
+  bool gpu_buffer_fail = false;
+  for_range(u32, i, 0, 3){
+    actual_buffers[i] = alloc_buffer
+      (params->gpu_allocr, params->device,
+       Vec2_slice_bytes(init_data[i]), (AllocBufferParams){
+	.props_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+	.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+	VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+	VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+      });
+    if(actual_buffers[i].code < 0)
+      gpu_buffer_fail = true;
   }
 
+  if(gpu_buffer_fail){
+    for_range(u32, i, 0, 3)
+      actual_buffers[i] = free_buffer(params->gpu_allocr, actual_buffers[i], params->device);
+    return output;
+  }
+  
   //Write descriptors
-  write_storage_descriptor(params->device, data->desc_set,
-			   actual_buffer.value, 0);
+  write_storage_descriptor(params->device, data->desc_set1,
+			   actual_buffers[0].value, 0);
+  write_storage_descriptor(params->device, data->desc_set2,
+			   actual_buffers[1].value, 0);
+  write_storage_descriptor(params->device, data->desc_set3,
+			   actual_buffers[2].value, 0);
 
   //Try to allocate cpu buffer for everything upfront, if fail, free all
-  data->items = SLICE_ALLOC(MemoryItem, 1, params->allocr);
-  data->img_formats = SLICE_ALLOC(VkFormat, 1, params->allocr);
-  data->item_usages = SLICE_ALLOC(u32, 1, params->allocr);
+  data->items = SLICE_ALLOC(MemoryItem, 3, params->allocr);
+  data->img_formats = SLICE_ALLOC(VkFormat, 3, params->allocr);
+  data->item_usages = SLICE_ALLOC(u32, 3, params->allocr);
 
   bool it_failed = ((nullptr == data->items.data) ||
 		    (nullptr == data->img_formats.data) ||
 		    (nullptr == data->item_usages.data));
   
-  data->items.data[0] = (MemoryItem){
-    .type = MEMORY_ITEM_TYPE_GPU_BUFFER,
-    .gpu_buffer = actual_buffer.value
-  };
   
   //Write the initial data
   if(!it_failed && immediate_command_begin(params->device, *params->compute_queue)){
+    for_slice(data->items, i){
+      data->items.data[i] = (MemoryItem){
+	.type = MEMORY_ITEM_TYPE_GPU_BUFFER,
+	.gpu_buffer = actual_buffers[i].value
+      };
+    }
+  
     MemoryItemDarray stage = init_MemoryItem_darray(params->allocr);
     
     u32 count = copy_memory_items(&stage, MAKE_ARRAY_SLICE
 				  (CopyUnit,
 				   {.src  = {
 				       .type = MEMORY_ITEM_TYPE_CPU_BUFFER,
-				       .cpu_buffer = SLICE_REINTERPRET(Vec2, u8, *init_data),
+				       .cpu_buffer = SLICE_REINTERPRET(Vec2, u8, init_data[0]),
 				     },
 				    .dst = data->items.data[0]
+				   },
+				   
+				   {.src  = {
+				       .type = MEMORY_ITEM_TYPE_CPU_BUFFER,
+				       .cpu_buffer = SLICE_REINTERPRET(Vec2, u8, init_data[1]),
+				     },
+				    .dst = data->items.data[1]
+				   },
+				   
+				   {.src  = {
+				       .type = MEMORY_ITEM_TYPE_CPU_BUFFER,
+				       .cpu_buffer = SLICE_REINTERPRET(Vec2, u8, init_data[2]),
+				     },
+				    .dst = data->items.data[2]
 				   }
 				   ), params->device, (CopyMemoryParam){
 				    .allocr = params->allocr,
@@ -210,7 +314,7 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
 				  }
 				  );
 					
-    if(!immediate_command_end(params->device, *params->compute_queue) || (count != 1)){
+    if(!immediate_command_end(params->device, *params->compute_queue) || (count != 3)){
       it_failed = true;
     }
     finish_copying_items(&stage, params->device, params->gpu_allocr);
@@ -223,7 +327,9 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
     SLICE_FREE(data->items, params->allocr);
     SLICE_FREE(data->img_formats, params->allocr);
     SLICE_FREE(data->item_usages, params->allocr);
-    free_buffer(params->gpu_allocr, actual_buffer, params->device);
+    
+    for_range(u32, i, 0, 3)
+      actual_buffers[i] = free_buffer(params->gpu_allocr, actual_buffers[i], params->device);
     return output;
   }
 
@@ -235,9 +341,10 @@ ComputeJobInitOutput init_test_compute(void* any_init_param, ComputeJobParam* pa
 
 
   data->item_usages.data[0] = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-
+  data->item_usages.data[1] = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  data->item_usages.data[2] = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  data->last_frame_time = start_monotonic_timer();
   
-
   return output;
 }
 
@@ -246,7 +353,7 @@ void clean_test_compute(void* pdata, ComputeJobParam* params ){
     return;
   TestComputeData* data = pdata;
 
-  
+  //TODO clean up everything
 
   for_slice(data->items, i){
     free_memory_item(data->items.data[i], params->allocr,
@@ -263,12 +370,20 @@ void clean_test_compute(void* pdata, ComputeJobParam* params ){
     vkDestroyCommandPool(params->device, data->cmd_pool, get_glob_vk_alloc());
   }
 
-  if(VK_NULL_HANDLE != data->pipeline){
-    vkDestroyPipeline(params->device, data->pipeline, get_glob_vk_alloc());
+  if(VK_NULL_HANDLE != data->pipeline2){
+    vkDestroyPipeline(params->device, data->pipeline2, get_glob_vk_alloc());
   }
 
-  if(VK_NULL_HANDLE != data->pipe_layout){
-    vkDestroyPipelineLayout(params->device, data->pipe_layout, get_glob_vk_alloc());
+  if(VK_NULL_HANDLE != data->pipeline1){
+    vkDestroyPipeline(params->device, data->pipeline1, get_glob_vk_alloc());
+  }
+
+  if(VK_NULL_HANDLE != data->pipe_layout2){
+    vkDestroyPipelineLayout(params->device, data->pipe_layout2, get_glob_vk_alloc());
+  }
+
+  if(VK_NULL_HANDLE != data->pipe_layout1){
+    vkDestroyPipelineLayout(params->device, data->pipe_layout1, get_glob_vk_alloc());
   }
 
   
@@ -290,6 +405,8 @@ VkCommandBuffer run_test_compute(void* pdata, ComputeJobParam* params){
     return VK_NULL_HANDLE;
   }
 
+  double delta = timer_sec(end_monotonic_timer(&data->last_frame_time));
+
   VkResult res = VK_SUCCESS;
 
   res = vkBeginCommandBuffer(data->cmd_buffer, &(VkCommandBufferBeginInfo){
@@ -301,23 +418,50 @@ VkCommandBuffer run_test_compute(void* pdata, ComputeJobParam* params){
     return VK_NULL_HANDLE; 
 
   vkCmdBindPipeline(data->cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
-		    data->pipeline);
+		    data->pipeline1);
 
   
   
   vkCmdPushConstants(data->cmd_buffer,
-		     data->pipe_layout,
+		     data->pipe_layout1,
 		     VK_SHADER_STAGE_COMPUTE_BIT,
 		     0, sizeof(u32), &data->item_count);
 		     
   
   vkCmdBindDescriptorSets(data->cmd_buffer,
 			  VK_PIPELINE_BIND_POINT_COMPUTE,
-			  data->pipe_layout, 0,
-			  1, &data->desc_set,
+			  data->pipe_layout1, 0,
+			  1, &data->desc_set1,
 			  0, nullptr);
   vkCmdDispatch(data->cmd_buffer,
 		_align_up(data->item_count, COMP_X_DIM), 1, 1);
+
+  
+  vkCmdBindPipeline(data->cmd_buffer, VK_PIPELINE_BIND_POINT_COMPUTE,
+		    data->pipeline2);
+
+  struct{
+    u32 size;
+    float delt;
+  } push_data = {0};
+  push_data.size = data->item_count;
+  push_data.delt = delta;
+  assert(sizeof(push_data) == (sizeof(float) + sizeof(u32)));
+    
+  vkCmdPushConstants(data->cmd_buffer,
+		     data->pipe_layout2,
+		     VK_SHADER_STAGE_COMPUTE_BIT,
+		     0, sizeof(push_data), &push_data);
+  
+  vkCmdBindDescriptorSets(data->cmd_buffer,
+			  VK_PIPELINE_BIND_POINT_COMPUTE,
+			  data->pipe_layout2, 0,
+			  2, (VkDescriptorSet[]){data->desc_set2, data->desc_set3},
+			  0, nullptr);
+  vkCmdDispatch(data->cmd_buffer,
+		_align_up(data->item_count, COMP_X_DIM), 1, 1);
+
+  
   
   res = vkEndCommandBuffer(data->cmd_buffer);
   if(VK_SUCCESS != res)

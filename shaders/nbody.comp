@@ -1,0 +1,44 @@
+#version 460
+#include "glsl.h"
+
+layout(local_size_x = COMP_X_DIM, local_size_y = COMP_Y_DIM, local_size_z = COMP_Z_DIM) in;
+
+layout(set = 0, binding = COMP_OBJ_BIND) buffer VertCoordBuffer{
+  vec2 arr[];
+}coords;
+layout(set = 1, binding = COMP_VEL_BIND) buffer VertVelBuffer{
+  vec2 arr[];
+}vels;
+layout(push_constant) uniform Size{
+  uint size;
+  float del_time;
+} push;
+
+void main(){
+  uint inx = gl_GlobalInvocationID.x;
+  if(inx < push.size){
+    vec2 del = vels.arr[inx] * push.del_time;
+    vec2 npos = del + coords.arr[inx];
+
+    //TODO Later make it more accurate no tunneling kind of reflection
+    if(npos.x > 1.0f){
+      npos.x = 1.0f;
+      vels.arr[inx].x = -vels.arr[inx].x;
+    }
+    if(npos.y > 1.0f){
+      npos.y = 1.0f;
+      vels.arr[inx].y = -vels.arr[inx].y;
+    }
+    if(npos.x < -1.0f){
+      npos.x = -1.0f;
+      vels.arr[inx].x = -vels.arr[inx].x;
+    }
+    if(npos.y < -1.0f){
+      npos.y = -1.0f;
+      vels.arr[inx].y = -vels.arr[inx].y;
+    }
+        
+    
+    coords.arr[inx] = npos;
+  }
+}

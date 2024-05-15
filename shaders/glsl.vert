@@ -15,8 +15,11 @@ layout (set = ROTATE_UNI_LOCATION, binding = 0) uniform RotUni{
   float val;
 } rot;
 
+
+
 void main()
 {
+  gl_PointSize = 1;
   /* //const array of positions for the triangle */
   /* const vec3 positions[3] = vec3[3]( */
   /* 	vec3(1.f,1.f, 0.0f), */

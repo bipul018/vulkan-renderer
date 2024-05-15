@@ -23,12 +23,16 @@ VkBool32 vk_debug_callback(
 
   const bool enable_printf = false;
   
-  /* if((messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) && */
-  /*    (!enable_printf ||  */
-  /*     ((0 != strcmp("WARNING-DEBUG-PRINTF", msg->pMessageIdName))))) */
-  /*   return VK_FALSE; */
+  if((messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) &&
+     (!enable_printf ||
+      ((0 != strcmp("WARNING-DEBUG-PRINTF", msg->pMessageIdName)))))
+    return VK_FALSE;
   
-
+  const bool show_loader_msg = false;
+  if((messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT) &&
+     (!show_loader_msg ||
+      ((0 != strcmp("Loader Message", msg->pMessageIdName)))))
+    return VK_FALSE;
 
   const char* severity = "";
   switch(messageSeverity){

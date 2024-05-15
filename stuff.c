@@ -22,18 +22,38 @@ static GPUAllocr gpu_allocr;
 
 static u32 frame_count = 0;
 static OptPipeline main_pipeline = {.code = CREATE_GRAPHICS_PIPELINE_TOP_FAIL_CODE};
-static OptBuffer vertex_buffer = {0};
+//static OptBuffer vertex_buffer = {0};
 //static OptBuffer texture_buffer = {0};
 //static VkPipelineLayout pipe_layout = {0};
 static bool inited_properly = false;
 
-static const Vec2 some_sq_seqs[] = {
-  {0,0}, {1, 0}, {1, 1}, {0,1}, {0, 2}, {1, 2}, {2, 2}, {2, 1}, {2, 0}, {3, 0}, {3, 1}, {3, 2}, {3, 3}, {2, 3}, {1, 3}, {0, 3}
-};
+Vec2 some_sq_seqs(size_t n){
+  int sqLen = ceil(sqrt(n)); // dim of square in which n move lies
+  int i = n - (sqLen - 1)*(sqLen - 1); // index since the last full square
+  int d = sqLen*sqLen - (sqLen - 1)*(sqLen - 1); // difference between current sq and last full sq
+  Vec2 pos;
+  // pattern is increasing until center of sequence for the given sq and constant 
+  // or constant until center of sequence and then decreasing
+  // odd and even current sq dim determines the pattern for x and y
+  if (sqLen % 2 == 0){
+    pos.x = (i <= (d+1)/2)?(sqLen-1):(sqLen - 1 - abs(i - ((d+1)/2)));
+    pos.y = (i >= (d+1)/2)?(sqLen-1):(i-1);
+  }
+  else{
+    pos.x = (i >= (d+1)/2)?(sqLen-1):(i-1);
+    pos.y = (i <= (d+1)/2)?(sqLen-1):(sqLen - 1 - abs(i - ((d+1)/2)));
+  }
+  return pos;
+}
+
+/* static const Vec2 some_sq_seqs[] = { */
+/*   {0,0}, {1, 0}, {1, 1}, {0,1}, {0, 2}, {1, 2}, {2, 2}, {2, 1}, {2, 0}, {3, 0}, {3, 1}, {3, 2}, {3, 3}, {2, 3}, {1, 3}, {0, 3} */
+/* }; */
 
 static ComputeJob compute_job = {0};
 
-#define MAX_INPUT_OBJ 14
+#define MAX_INPUT_OBJ 40000 //3600 //324
+static u32 input_count = MAX_INPUT_OBJ;
 //VkDescriptorSetLayout desc_layout = VK_NULL_HANDLE;
 //VkDescriptorSetLayout push_desc_layout = VK_NULL_HANDLE;
 VkDescriptorPool desc_pool = VK_NULL_HANDLE;
@@ -313,116 +333,15 @@ void init_stuff(VulkanDevice* ptr_device, AllocInterface allocr, VkRenderPass re
 
 
   if(was_success){
-    main_pipeline = create_pipeline1(g_allocr, g_device->device, vert_desc,
-				     (ShaderNames){
-				       .vert = "./shaders/glsl.vert.spv",
-				       .frag = "./shaders/glsl.frag.spv"
-				     }, render_pass, 0);
+    main_pipeline = create_pipeline1_point(g_allocr, g_device->device,
+					   vert_desc,
+					   (ShaderNames){
+					     .vert = "./shaders/glsl.vert.spv",
+					     .frag = "./shaders/glsl.frag.spv"
+					   }, render_pass, 0);
   }
   clear_vertex_input(&vert_desc);
 
-  printf("Now creating buffers\n");
-
-  Vec2 base_inputs[] = {
-    {0.f, 0.f},
-    {0.2f, 0.f},
-    {0.2f, 0.2f},
-    {0.2f, 0.2f},
-    {0.f, 0.2f},
-    {0.f, 0.f}
-  };
-  
-  Vec2 base_tex_inputs[] = {
-    {0.f, 0.f},
-    {0.25f, 0.f},
-    {0.25f, 0.25f},
-    {0.25f, 0.25f},
-    {0.f, 0.25f},
-    {0.f, 0.f}
-  };
-
-  Vec2 inputs[MAX_INPUT_OBJ * _countof(base_inputs)] = {0};
-  Vec2 tex_inputs[MAX_INPUT_OBJ * _countof(base_tex_inputs)] = {0};
-
-  for_range(u32, i, 0, MAX_INPUT_OBJ){
-    u32 base_inx = i * _countof(base_inputs);
-    memcpy(inputs + base_inx, base_inputs, sizeof(base_inputs));
-    memcpy(tex_inputs + base_inx, base_tex_inputs, sizeof(base_tex_inputs));
-
-    for_range(u32, j, 0, _countof(base_inputs)){
-      inputs[base_inx + j] = vec2_add
-	(inputs[base_inx + j],
-	 vec2_scale_fl
-	 (some_sq_seqs[i % _countof(some_sq_seqs)], 
-	  0.205f));
-      tex_inputs[base_inx + j] = vec2_add
-	(tex_inputs[base_inx + j],
-	 vec2_scale_fl
-	 (some_sq_seqs[i % _countof(some_sq_seqs)], 
-	  0.25f));
-    }
-  }
-
-  //TODO :: maybe make it device local and write using staging buffer 
-  
-  vertex_buffer = alloc_buffer(&gpu_allocr, g_device->device, sizeof(inputs),
-			       (AllocBufferParams){
-				 .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT ,
-				 .props_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-				 .make_transfer_dst = true,
-			       });
-  /* texture_buffer = alloc_buffer(&gpu_allocr, g_device->device, sizeof(tex_inputs), */
-  /* 				(AllocBufferParams){ */
-  /* 				  .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT , */
-  /* 				  .props_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, */
-  /* 				  .make_transfer_dst = true, */
-  /* 				}); */
-
-  if((vertex_buffer.code >= 0) /* && (texture_buffer.code >= 0) */){
-    if(immediate_command_begin(g_device->device, g_device->graphics)){
-      MemoryItemDarray stage = init_MemoryItem_darray(g_allocr);
-    
-      u32 count = copy_memory_items(&stage, MAKE_ARRAY_SLICE
-				    (CopyUnit,
-				     {.src  = {
-					.type = MEMORY_ITEM_TYPE_CPU_BUFFER,
-					.cpu_buffer = init_u8_slice((void*)inputs, sizeof(inputs))},
-						.dst = {
-						  .type = MEMORY_ITEM_TYPE_GPU_BUFFER,
-						  .gpu_buffer = vertex_buffer.value
-						}
-				     },
-				     /* {.src  = { */
-				     /* 	.type = MEMORY_ITEM_TYPE_CPU_BUFFER, */
-				     /* 	.cpu_buffer = init_u8_slice((void*)tex_inputs, sizeof(inputs))}, */
-				     /* 		.dst = { */
-				     /* 		  .type = MEMORY_ITEM_TYPE_GPU_BUFFER, */
-				     /* 		  .gpu_buffer = texture_buffer.value */
-				     /* 		} */
-				     /* } */
-				     ), g_device->device, (CopyMemoryParam){
-				      .allocr = g_allocr,
-				      .gpu_allocr = &gpu_allocr,
-				      .cmd_buf = g_device->graphics.im_buffer,
-				      .src_queue_family = g_device->graphics.family,
-				      .dst_queue_family = g_device->graphics.family,
-				      .src_stage_mask = VK_PIPELINE_STAGE_2_NONE,
-				      .dst_stage_mask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-				    }
-				    );
-					
-      if(!immediate_command_end(g_device->device, g_device->graphics) ||
-	 (count != 1)){
-
-	//TODO :: handle this and flow the error back
-	assert(false);
-      }
-      finish_copying_items(&stage, g_device->device, &gpu_allocr);
-    }
-	
-  }
-  
-  printf("Copied the buffer data\n");
 
   angle_bufs = SLICE_ALLOC(OptBuffer, frame_count, g_allocr);
   bool all_created = true;
@@ -441,10 +360,65 @@ void init_stuff(VulkanDevice* ptr_device, AllocInterface allocr, VkRenderPass re
   else{
     all_created = false;
   }
-
   
+  printf("Now creating buffers\n");
+  const float span = 0.001f;
+  const float padding = 0.001f;
+  Vec2 base_inputs[] = {
+    {0.f, 0.f},
+    {span , 0.f},
+    {span , span },
+    {span , span },
+    {0.f, span },
+    {0.f, 0.f}
+  };
+  
+  Vec2 base_tex_inputs[] = {
+    {0.f, 0.f},
+    {span, 0.f},
+    {span, span},
+    {span, span},
+    {0.f, span},
+    {0.f, 0.f}
+  };
+  
+  static Vec2 inputs[MAX_INPUT_OBJ * _countof(base_inputs)] = {0};
+  static Vec2 tex_inputs[MAX_INPUT_OBJ * _countof(base_tex_inputs)] = {0};
+  static Vec2 vels[MAX_INPUT_OBJ * _countof(base_inputs)] = {0};
   //size_t compute_size = 6 * MAX_INPUT_OBJ;
-  Vec2Slice compute_data = SLICE_FROM_ARRAY(Vec2, tex_inputs);
+  Vec2Slice compute_data[] = {
+    SLICE_FROM_ARRAY(Vec2, tex_inputs),
+    SLICE_FROM_ARRAY(Vec2, inputs),
+    SLICE_FROM_ARRAY(Vec2, vels)
+  };
+  
+  for_range(u32, i, 0, MAX_INPUT_OBJ){
+    u32 base_inx = i * _countof(base_inputs);
+    memcpy(inputs + base_inx, base_inputs, sizeof(base_inputs));
+    memcpy(tex_inputs + base_inx, base_tex_inputs, sizeof(base_tex_inputs));
+
+    for_range(u32, j, 0, _countof(base_inputs)){
+      inputs[base_inx + j] = vec2_add
+	(inputs[base_inx + j],
+	 vec2_scale_fl
+	 (some_sq_seqs(i+1), 
+	  span + padding));
+      tex_inputs[base_inx + j] = vec2_add
+	(tex_inputs[base_inx + j],
+	 vec2_scale_fl
+	 (some_sq_seqs(i+1), 
+	  span));
+    }
+  }
+  for_slice(compute_data[2], i){
+    compute_data[1].data[i] = (Vec2){.x = 0.1f*(rand() / (RAND_MAX - 1.f))-0.05f,
+				     .y = 0.1f*(rand() / (RAND_MAX - 1.f))-0.05f,};
+    
+    compute_data[2].data[i] = (Vec2){.x = 0.2f*(rand() / (RAND_MAX - 1.f))-0.1f,
+				     .y = 0.2f*(rand() / (RAND_MAX - 1.f))-0.1f,};
+  }
+  
+
   
   compute_job = init_compute_job(&gpu_allocr, allocr, g_device, 3,
 				    &compute_data,
@@ -455,7 +429,7 @@ void init_stuff(VulkanDevice* ptr_device, AllocInterface allocr, VkRenderPass re
   
   //amend this inited properly
   printf("Exiting init_stuff\n");
-  inited_properly = (main_pipeline.code >= 0) && (vertex_buffer.code >= 0)
+  inited_properly = (main_pipeline.code >= 0) //&& (vertex_buffer.code >= 0)
     // && (texture_buffer.code >= 0) 
     && tex_inited && desc_inited && all_created && was_success
     && (compute_job.code >= 0);
@@ -478,7 +452,7 @@ void clean_stuff(void){
   SLICE_FREE(angle_bufs, g_allocr);
   clear_textures();
   // free_buffer(&gpu_allocr, texture_buffer, g_device->device);
-  free_buffer(&gpu_allocr, vertex_buffer, g_device->device);
+  //free_buffer(&gpu_allocr, vertex_buffer, g_device->device);
   clear_graphics_pipeline(main_pipeline, g_device->device);
   clear_descriptors0();
   //TODO clear layouts
@@ -491,35 +465,44 @@ bool take_ss = false;
 u32 ss_frame = 0;
 
 void event_stuff(MSG msg){
-  if(msg.message == WM_KEYUP){
-    if(msg.wParam == ' '){
+    if(msg.message == WM_KEYDOWN){
+    switch(msg.wParam){
+    case ' ':{
       printf("Keyup on space");
       take_ss = true;
       //Now create another image, copy swapchain image into this image
       //Then make into a file after copying into a buffer
+    } break;
+    case VK_RIGHT:{
+    if(input_count < MAX_INPUT_OBJ)
+      input_count++;
 
-      
-      
+    }break;
+    case VK_LEFT:{
+      if(input_count > 1)
+	input_count--;
+    }break;
     }
   }
+  
 }
 
 void update_stuff(int width, int height, u32 frame_inx){
 
-  angle += 0.005;
+  //angle += 0.005;
   
   static Vec2 da_translate = {0,0};
 
-  translate.x = (da_translate.x - width/2.f) / (width/2.f);
-  translate.y = (da_translate.y - height/2.f) / (height/2.f);
-  if(da_translate.x >= (width - 90)){
-    da_translate.x = 0;
-  }
-  if(da_translate.y >= (height - 90)){
-    da_translate.y = 0;
-  }
-  da_translate.x += 1;
-  da_translate.y += 0.5;
+  /* translate.x = (da_translate.x - width/2.f) / (width/2.f); */
+  /* translate.y = (da_translate.y - height/2.f) / (height/2.f); */
+  /* if(da_translate.x >= (width - 90)){ */
+  /*   da_translate.x = 0; */
+  /* } */
+  /* if(da_translate.y >= (height - 90)){ */
+  /*   da_translate.y = 0; */
+  /* } */
+  /* da_translate.x += 1; */
+  /* da_translate.y += 0.5; */
 
   
   
@@ -586,7 +569,8 @@ VkSemaphore render_stuff(u32 frame_inx, VkCommandBuffer cmd_buf){
   vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS , main_pipeline.value);
 
   VkBuffer vert_buffers[] = {
-    vertex_buffer.value.vk_obj,
+    //vertex_buffer.value.vk_obj,
+    compute_job.render_side_items.data[frame_inx].data[1].gpu_buffer.vk_obj,
     compute_job.render_side_items.data[frame_inx].data[0].gpu_buffer.vk_obj,
     //texture_buffer.value.vk_obj
   };
@@ -595,7 +579,7 @@ VkSemaphore render_stuff(u32 frame_inx, VkCommandBuffer cmd_buf){
 			 (VkDeviceSize[]){0,0});
 
 
-  vkCmdDraw(cmd_buf, 6 * MAX_INPUT_OBJ, 1, 0, 0);
+  vkCmdDraw(cmd_buf, 6 * input_count, 1, 0, 0);
 
 
   return compute_res.sema;

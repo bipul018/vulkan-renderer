@@ -7,4 +7,5 @@
 #define COMP_Z_DIM 1
 
 #define COMP_OBJ_BIND 0
+#define COMP_VEL_BIND 0
 //#define COMP_DST_BIND 1

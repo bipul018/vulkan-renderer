@@ -37,3 +37,5 @@ void clear_layouts(VkDevice device);
 //Ignores the pipe_layout parameter and fills it itself,
 //Also it fills the vertex input attributes acc input_desc
 OptPipeline create_pipeline1(AllocInterface allocr, VkDevice device, VertexInputDesc vert_desc,ShaderNames shaders, VkRenderPass render_pass, u32 subpass);
+
+OptPipeline create_pipeline1_point(AllocInterface allocr, VkDevice device, VertexInputDesc vert_desc,ShaderNames shaders, VkRenderPass render_pass, u32 subpass);

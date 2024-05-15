@@ -142,6 +142,20 @@ OptPipeline create_pipeline1(AllocInterface allocr, VkDevice device, VertexInput
   return create_graphics_pipeline (allocr, device, params);
 }
 
+OptPipeline create_pipeline1_point(AllocInterface allocr, VkDevice device, VertexInputDesc vert_desc,ShaderNames shaders, VkRenderPass render_pass, u32 subpass){
+  GraphicsPipelineCreationInfos infos = default_graphics_pipeline_creation_infos();
+  infos.input_assembly_state.topology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+  CreateGraphicsPipelineParam params = {
+    .create_infos = infos,
+    .pipe_layout = get_pipe1_pipe_layout(device),
+    .shaders = shaders,
+    .compatible_render_pass = render_pass,
+    .subpass_index = subpass,
+    .vert_bindings = {.data = vert_desc.bindings.data, .count = vert_desc.bindings.count},
+    .vert_attrs = {.data = vert_desc.attrs.data, .count = vert_desc.attrs.count}
+  };
+  return create_graphics_pipeline (allocr, device, params);
+}
 
 
 

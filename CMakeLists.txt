@@ -77,6 +77,7 @@ endfunction()
 add_shader_step(shaders "shaders/glsl.vert" "shaders/glsl.h")
 add_shader_step(shaders "shaders/glsl.frag" "shaders/glsl.h")
 add_shader_step(shaders "shaders/glsl.comp" "shaders/glsl.h")
+add_shader_step(shaders "shaders/nbody.comp" "shaders/glsl.h")
 target_sources(${Project} PRIVATE "shaders/glsl.h")
 
 add_dependencies(${Project} shaders)
