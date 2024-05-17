@@ -21,21 +21,26 @@ void main(){
     vec2 npos = del + coords.arr[inx];
 
     //TODO Later make it more accurate no tunneling kind of reflection
+    const float factor = 0.99;
     if(npos.x > 1.0f){
       npos.x = 1.0f;
       vels.arr[inx].x = -vels.arr[inx].x;
+      vels.arr[inx] *= 0.99;
     }
     if(npos.y > 1.0f){
       npos.y = 1.0f;
       vels.arr[inx].y = -vels.arr[inx].y;
+      vels.arr[inx] *= 0.99;
     }
     if(npos.x < -1.0f){
       npos.x = -1.0f;
       vels.arr[inx].x = -vels.arr[inx].x;
+      vels.arr[inx] *= 0.99;
     }
     if(npos.y < -1.0f){
       npos.y = -1.0f;
       vels.arr[inx].y = -vels.arr[inx].y;
+      vels.arr[inx] *= 0.99;
     }
         
     

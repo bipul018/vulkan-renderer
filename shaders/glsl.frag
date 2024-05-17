@@ -14,5 +14,5 @@ void main()
   //return red
   //outFragColor = vec4(1.f,0.f,0.f,1.0f);
   outFragColor = texture(sampler2D(tex, smplr) ,ogPos);
-  //outFragColor = vec4(0,0,0,1);
+  outFragColor = vec4(0.4,0,0.4,1);
 }

@@ -2,7 +2,7 @@
 #define ROTATE_UNI_LOCATION 0
 #define TEXTURE_UNI_LOCATION 2
 
-#define COMP_X_DIM 4
+#define COMP_X_DIM 32
 #define COMP_Y_DIM 1
 #define COMP_Z_DIM 1
 
