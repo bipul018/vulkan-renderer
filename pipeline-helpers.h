@@ -80,7 +80,11 @@ struct MemoryItem {
   enum MemoryItemType type;
   union{
     u8Slice cpu_buffer;
-    BufferObj gpu_buffer;
+    struct{
+      BufferObj obj;
+      size_t offset;
+      size_t length;
+    } gpu_buffer;
     struct{
       ImageObj obj;
       VkImageLayout layout;

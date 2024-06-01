@@ -21,7 +21,7 @@ VkBool32 vk_debug_callback(
 
   static int num = 0;
 
-  const bool enable_printf = false;
+  const bool enable_printf = true;
   
   if((messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) &&
      (!enable_printf ||

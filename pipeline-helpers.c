@@ -171,8 +171,13 @@ void write_storage_image(VkDevice device, VkDescriptorSet set, VkImageView image
 	   },
     }, 0, nullptr);
 }
+//#include <stdio.h>
 void write_inline_descriptor(VkDevice device, VkDescriptorSet set, u8Slice data, int binding){
 
+  /* int k = 2; */
+  /* k += 2; */
+  /* k *= 19; */
+  /* printf("Data ptr, count : %p, %d\n", data.data, (int)data.count); */
   vkUpdateDescriptorSets
     (device, 1,
      &(VkWriteDescriptorSet){
@@ -265,7 +270,7 @@ MemoryItem free_memory_item(MemoryItem item, AllocInterface allocr, GPUAllocr* g
     SLICE_FREE(item.cpu_buffer, allocr);
   }break;
   case MEMORY_ITEM_TYPE_GPU_BUFFER:{
-    free_buffer(gpu_allocr, (OptBuffer){.value = item.gpu_buffer}, device);
+    free_buffer(gpu_allocr, (OptBuffer){.value = item.gpu_buffer.obj}, device);
   }break;
   case MEMORY_ITEM_TYPE_IMAGE:{
     free_image(gpu_allocr, (OptImage){.value = item.image.obj}, device);
@@ -316,7 +321,7 @@ static u32 submit_barriers(VkCommandBuffer cmd_buf, ImgBarrDarray* img_barrs,
 		      (other.type == MEMORY_ITEM_TYPE_NONE));
       if(unit.type == other.type){
 	if(unit.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
-	  no_copy = no_copy || (unit.gpu_buffer.vk_obj == other.gpu_buffer.vk_obj);
+	  no_copy = no_copy || (unit.gpu_buffer.obj.vk_obj == other.gpu_buffer.obj.vk_obj);
 	}
 	else{
 	  no_copy = no_copy || (unit.image.obj.vk_obj == other.image.obj.vk_obj);
@@ -435,9 +440,9 @@ static u32 submit_barriers(VkCommandBuffer cmd_buf, ImgBarrDarray* img_barrs,
       }
       if(unit.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
 	BuffBarr barr = common;
-	barr.buffer = unit.gpu_buffer.vk_obj;
-	barr.offset = 0;
-	barr.size = unit.gpu_buffer.size;
+	barr.buffer = unit.gpu_buffer.obj.vk_obj;
+	barr.offset = _min(unit.gpu_buffer.offset, unit.gpu_buffer.obj.size-1);
+	barr.size = _min(unit.gpu_buffer.length, unit.gpu_buffer.obj.size);
 
 	bool push_res = push_BuffBarr_darray(buff_barrs, barr);
 	if(push_res){
@@ -558,7 +563,7 @@ u32 copy_memory_items(MemoryItemDarray* stage_buffers, CopyUnitSlice items,
     }
 
     if(same && (src.type == MEMORY_ITEM_TYPE_GPU_BUFFER) &&
-       (src.gpu_buffer.vk_obj == dst.gpu_buffer.vk_obj))
+       (src.gpu_buffer.obj.vk_obj == dst.gpu_buffer.obj.vk_obj))
       continue;
     
     if(same && (src.type == MEMORY_ITEM_TYPE_IMAGE) &&
@@ -600,7 +605,9 @@ u32 copy_memory_items(MemoryItemDarray* stage_buffers, CopyUnitSlice items,
 	      break;
 	    }
 	    dst.type = MEMORY_ITEM_TYPE_GPU_BUFFER;
-	    dst.gpu_buffer = stage.value;
+	    dst.gpu_buffer.obj = stage.value;
+	    dst.gpu_buffer.length = stage.value.size;
+	    dst.gpu_buffer.offset = 0;
 	  }
 	  else{
 	    void* mapping = create_mapping_of_buffer(device, *param.gpu_allocr, stage.value);
@@ -609,7 +616,9 @@ u32 copy_memory_items(MemoryItemDarray* stage_buffers, CopyUnitSlice items,
 	    flush_mapping_of_buffer(device, *param.gpu_allocr, stage.value);
 	    
 	    src.type = MEMORY_ITEM_TYPE_GPU_BUFFER;
-	    src.gpu_buffer = stage.value;
+	    src.gpu_buffer.obj = stage.value;
+	    src.gpu_buffer.offset = 0;
+	    src.gpu_buffer.length = stage.value.size;
 	  }
 	}
       }
@@ -620,21 +629,22 @@ u32 copy_memory_items(MemoryItemDarray* stage_buffers, CopyUnitSlice items,
     //It must be image if not gpu buffer
     if(src.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
       if(dst.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
-	vkCmdCopyBuffer(param.cmd_buf, src.gpu_buffer.vk_obj,
-			dst.gpu_buffer.vk_obj, 1,
+	vkCmdCopyBuffer(param.cmd_buf, src.gpu_buffer.obj.vk_obj,
+			dst.gpu_buffer.obj.vk_obj, 1,
 			&(VkBufferCopy){
-			  .srcOffset = 0,
-			  .dstOffset = 0,
-			    .size = _min(src.gpu_buffer.size,
-					 dst.gpu_buffer.size)
+			  .srcOffset = src.gpu_buffer.offset,
+			  .dstOffset = dst.gpu_buffer.offset,
+			    .size = _min(src.gpu_buffer.length,
+					 dst.gpu_buffer.length)
 			});
       }
       else{
 	assert(dst.type == MEMORY_ITEM_TYPE_IMAGE);
-	vkCmdCopyBufferToImage(param.cmd_buf, src.gpu_buffer.vk_obj,
+	vkCmdCopyBufferToImage(param.cmd_buf, src.gpu_buffer.obj.vk_obj,
 			       dst.image.obj.vk_obj,
 			       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			       1, &(VkBufferImageCopy){
+				 .bufferOffset = src.gpu_buffer.offset,
 				 .imageExtent = {
 				   .depth = 1,
 				   .width = dst.image.obj.width,
@@ -652,8 +662,9 @@ u32 copy_memory_items(MemoryItemDarray* stage_buffers, CopyUnitSlice items,
       if(dst.type == MEMORY_ITEM_TYPE_GPU_BUFFER){
 	vkCmdCopyImageToBuffer(param.cmd_buf, src.image.obj.vk_obj,
 			       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			       dst.gpu_buffer.vk_obj,
+			       dst.gpu_buffer.obj.vk_obj,
 			       1, &(VkBufferImageCopy){
+				 .bufferOffset = dst.gpu_buffer.offset,
 				 .imageExtent = {
 				   .depth = 1,
 				   .width = src.image.obj.width,
@@ -732,17 +743,17 @@ void finish_copying_items(MemoryItemDarray* stage_buffers, VkDevice device, GPUA
        (stage_buffers->data[i+1].type == MEMORY_ITEM_TYPE_CPU_BUFFER)){
 
       void* mapping = create_mapping_of_buffer(device, *gpu_allocr,
-					       stage_buffers->data[i].gpu_buffer);
+					       stage_buffers->data[i].gpu_buffer.obj);
       assert(mapping != nullptr);
       memcpy(stage_buffers->data[i+1].cpu_buffer.data, mapping,
 	     _min(stage_buffers->data[i+1].cpu_buffer.count,
-		  stage_buffers->data[i].gpu_buffer.size));
+		  stage_buffers->data[i].gpu_buffer.obj.size));
       flush_mapping_of_buffer(device, *gpu_allocr,
-			      stage_buffers->data[i].gpu_buffer);
+			      stage_buffers->data[i].gpu_buffer.obj);
       i++;
     }
 
-    free_buffer(gpu_allocr, (OptBuffer){.value = pop_item.gpu_buffer}, device);
+    free_buffer(gpu_allocr, (OptBuffer){.value = pop_item.gpu_buffer.obj}, device);
   }
 
   resize_MemoryItem_darray(stage_buffers, 0);

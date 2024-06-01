@@ -15,13 +15,7 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib>)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/lib>)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}/bin>)
 
-add_executable("${Project}")
-
-# set_target_properties(${Project} PROPERTIES EXPORT_COMPILE_COMMANDS ON)
-
-target_sources(${Project} PRIVATE
-		   main.c
-		   common-stuff.c
+set(CoreSourceFiles common-stuff.c
 		   render-stuff.c
 		   window-stuff.c
 		   device-mem-stuff.c
@@ -31,9 +25,7 @@ target_sources(${Project} PRIVATE
 		   pipeline-helpers.c
 		   compute-test.c
 		   compute-interface.c)
-
-# TODO:: Maybe later this can be better solved using INTERFACE
-target_sources(${Project} PRIVATE common-stuff.h
+set(CoreHeaderFiles common-stuff.h
 		     render-stuff.h
 		     window-stuff.h
 		     device-mem-stuff.h
@@ -44,14 +36,40 @@ target_sources(${Project} PRIVATE common-stuff.h
 		     compute-interface.h
 		     compute-test.h)
 
-
-target_include_directories(${Project} PRIVATE ${PROJECT_SOURCE_DIR}
+set(CoreIncludePaths ${PROJECT_SOURCE_DIR}
 			       "${PROJECT_SOURCE_DIR}/../utilities"
 			       "${PROJECT_SOURCE_DIR}/../stb"
 			       "${PROJECT_SOURCE_DIR}/../VulkanSDK/1.3.280.0/Include")
 
-target_link_directories(${Project} PRIVATE "d:/prgming/VulkanSDK/1.3.280.0/Lib")
-target_link_libraries(${Project} PRIVATE dwmapi.lib vulkan-1.lib user32.lib)
+set(CoreLibraryPaths "d:/prgming/VulkanSDK/1.3.280.0/Lib")
+
+set(CoreStaticLibraries dwmapi.lib vulkan-1.lib user32.lib)
+
+add_executable("${Project}")
+target_sources(${Project} PRIVATE
+		   main.c ${CoreSourceFiles})
+
+# TODO:: Maybe later this can be better solved using INTERFACE
+target_sources(${Project} PRIVATE ${CoreHeaderFiles})
+target_include_directories(${Project} PRIVATE ${CoreIncludePaths})
+target_link_directories(${Project} PRIVATE ${CoreLibraryPaths})
+
+target_link_libraries(${Project} PRIVATE ${CoreStaticLibraries})
+
+#The dll of everything except main.c
+add_library(${Project}-dll SHARED)
+set_property(TARGET ${Project}-dll PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS ON)
+target_sources(${Project}-dll PRIVATE lisp-export.c ${CoreSourceFiles})
+# TODO:: Maybe later this can be better solved using INTERFACE
+target_sources(${Project}-dll PRIVATE ${CoreHeaderFiles})
+target_include_directories(${Project}-dll PRIVATE ${CoreIncludePaths})
+target_link_directories(${Project}-dll PRIVATE ${CoreLibraryPaths})
+target_link_libraries(${Project}-dll PRIVATE ${CoreStaticLibraries})
+
+
+#The hot reloadable dll for quick testing and configuring
+add_library(dll-test SHARED)
+target_sources(dll-test PRIVATE dll-test.c vectors.h)
 
 # Handle shaders
 
@@ -77,6 +95,7 @@ endfunction()
 add_shader_step(shaders "shaders/glsl.vert" "shaders/glsl.h")
 add_shader_step(shaders "shaders/glsl.frag" "shaders/glsl.h")
 add_shader_step(shaders "shaders/glsl.comp" "shaders/glsl.h")
+add_shader_step(shaders "shaders/naccl.comp" "shaders/glsl.h")
 add_shader_step(shaders "shaders/nbody.comp" "shaders/glsl.h")
 target_sources(${Project} PRIVATE "shaders/glsl.h")
 

@@ -13,19 +13,23 @@
 /*   VkImageView texture2d; */
 /* } Pipe1Desc2_0; */
 
-u32 get_pipe1_translate_set(void);
-u32 get_pipe1_rotate_set(void);
-u32 get_pipe1_texture_set(void);
+u32 get_pipe1_transform_set(void);
+//u32 get_pipe1_rotate_set(void);
+u32 get_pipe1_texture_data_set(void);
 
 //For giving bindings list for set n
-const DescSizeSlice get_pipe1_translate_bindings(void);
-const DescSizeSlice get_pipe1_rotate_bindings(void);
-const DescSizeSlice get_pipe1_texture_bindings(void);
+const DescSizeSlice get_pipe1_transform_bindings(void);
+//const DescSizeSlice get_pipe1_rotate_bindings(void);
+const DescSizeSlice get_pipe1_texture_data_bindings(void);
+
+u32 get_pipe1_transform_binding_no(void);
+u32 get_pipe1_texture_binding_no(void);
+u32 get_pipe1_sampler_binding_no(void);
 
 //For giving layouts for set n
-VkDescriptorSetLayout get_pipe1_translate_layout(VkDevice device);
-VkDescriptorSetLayout get_pipe1_rotate_layout(VkDevice device);
-VkDescriptorSetLayout get_pipe1_texture_layout(VkDevice device);
+VkDescriptorSetLayout get_pipe1_transform_layout(VkDevice device);
+//VkDescriptorSetLayout get_pipe1_rotate_layout(VkDevice device);
+VkDescriptorSetLayout get_pipe1_texture_data_layout(VkDevice device);
 
 //Create pipeline layout, one per set : also store this as a global static handle
 VkPipelineLayout get_pipe1_pipe_layout(VkDevice device);

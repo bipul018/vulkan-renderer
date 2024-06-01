@@ -1,5 +1,6 @@
 #include "compute-interface.h"  
 //Init func
+
 ComputeJob init_compute_job(GPUAllocr* gpu_allocr, AllocInterface allocr,
 			    VulkanDevice* device, u32 max_frames,
 			    void* job_init_param,
@@ -233,7 +234,7 @@ ComputeJob init_compute_job(GPUAllocr* gpu_allocr, AllocInterface allocr,
 	.props_flags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 	.usage = output.main_item_usages->data[i] | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       };
-      size_t size = output.main_items->data[i].gpu_buffer.size;
+      size_t size = output.main_items->data[i].gpu_buffer.obj.size;
       
       //Create max_frames for render_side_items
       for_slice(output.render_side_items, j){
@@ -246,7 +247,11 @@ ComputeJob init_compute_job(GPUAllocr* gpu_allocr, AllocInterface allocr,
 	output.render_side_items.data[j].data[i] =
 	  (MemoryItem){
 	  .type = MEMORY_ITEM_TYPE_GPU_BUFFER,
-	  .gpu_buffer = render_buff.value,
+	  .gpu_buffer = {
+	    .obj = render_buff.value,
+	    .offset = 0,
+	    .length = render_buff.value.size
+	  },
 	};
       }
       
@@ -261,7 +266,11 @@ ComputeJob init_compute_job(GPUAllocr* gpu_allocr, AllocInterface allocr,
       output.buffered_items.data[i] =
 	(MemoryItem){
 	.type = MEMORY_ITEM_TYPE_GPU_BUFFER,
-	.gpu_buffer = buff_buff.value,
+	.gpu_buffer = {
+	  .obj = buff_buff.value,
+	  .offset = 0,
+	  .length = buff_buff.value.size,
+	}
       };
     } break;
     default:

@@ -6,7 +6,9 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 #include <stdbool.h>
+#ifndef VEC_API
 #define VEC_API static inline
+#endif
 
 #define swap_stuff(type, a, b)                                       \
     {                                                                \
@@ -47,6 +49,35 @@ VEC_API Vec2 vec2_scale_vec(Vec2 v1, Vec2 v2) {
   return (Vec2){ v1.x * v2.x, v1.y * v2.y};
 }
 
+VEC_API float vec2_magnitude(Vec2 v) {
+    return sqrtf(v.x * v.x + v.y * v.y);
+}
+VEC_API Vec2 vec2_comp_inverse(Vec2 v){
+  return (Vec2){.x = 1.f/v.x, .y = 1.f/v.y};
+}
+
+VEC_API Vec2 vec2_rotate_fl(Vec2 v, float angle){
+  const float c = cosf(angle);
+  const float s = sinf(angle);
+  return (Vec2){
+    .x = v.x * c - v.y * s,
+    .y = v.x * s + v.y * c
+  };
+}
+
+//TODO:: Make other 'normalize' fxns also return 0 on too little magnitude
+VEC_API Vec2 vec2_normalize(Vec2 v){
+  const float m = vec2_magnitude(v);
+  if(m <= 2 * 10e-6){
+    return (Vec2){0};
+  }
+  return (Vec2){.x = v.x/m, .y = v.y/m};
+}
+
+
+VEC_API float vec2_dot(Vec2 a, Vec2 b) {
+  return a.x * b.x + a.y * b.y;
+}
 union Vec3 {
     float comps[3];
     struct {
@@ -68,6 +99,11 @@ VEC_API bool vec3_equality(Vec3 a, Vec3 b) {
     return (fabsf(a.x - b.x) < g_vec_epsilon) &&
       (fabsf(a.y - b.y) < g_vec_epsilon) &&
       (fabsf(a.z - b.z) < g_vec_epsilon);
+}
+
+//Vec3 to Vec2 swizzle
+VEC_API Vec2 vec3_xy(Vec3 vec){
+  return (Vec2){.x = vec.x, .y= vec.y};
 }
 
 VEC_API Vec3 vec3_to_radians(Vec3 degrees) {
