@@ -12,31 +12,31 @@ OptRenderPass create_render_pass(VkDevice device, VkFormat img_format, VkFormat 
     OptRenderPass render_pass = {0};
 
     VkAttachmentDescription attachments[] = {
-        {
-	  .format = img_format,
-          .samples = VK_SAMPLE_COUNT_1_BIT,
-          .loadOp =
-          VK_ATTACHMENT_LOAD_OP_CLEAR, // Determines what to do to
-          // attachment before render
-          .storeOp =
-          VK_ATTACHMENT_STORE_OP_STORE, // Whether to store rendered
-          // things back or not
-          .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-          .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-          .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-          .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	},
-        {
-            .format = depth_stencil_format,
-            .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-            .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-            .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-            .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-            .finalLayout =
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        },
+      {
+	.format = img_format,
+	.samples = VK_SAMPLE_COUNT_1_BIT,
+	.loadOp =
+	VK_ATTACHMENT_LOAD_OP_CLEAR, // Determines what to do to
+	// attachment before render
+	.storeOp =
+	VK_ATTACHMENT_STORE_OP_STORE, // Whether to store rendered
+	// things back or not
+	.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+	.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+	.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+      },
+      {
+	.format = depth_stencil_format,
+	.samples = VK_SAMPLE_COUNT_1_BIT,
+	.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+	.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+	.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+	.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+	.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+	.finalLayout =
+	VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+      },
     };
 
     VkAttachmentReference color_attach_ref = {

@@ -20,7 +20,7 @@
 typedef struct VulkanWindow VulkanWindow;
 struct VulkanWindow {
   VkSurfaceKHR surface;
-  LPSTR class_name;
+  //LPSTR class_name;
   HANDLE window_handle;
   int width;
   int height;
@@ -44,8 +44,8 @@ struct CreateVulkanWindowParams {
   int height;
   int posx;
   int posy;
-  WNDPROC wnd_proc;
-  LPSTR window_class;
+  //WNDPROC wnd_proc;
+  //LPSTR window_class;
   void* proc_data;
 };
 
@@ -53,6 +53,7 @@ OptVulkanWindow create_vulkan_window(CreateVulkanWindowParams params, VkInstance
 
 OptVulkanWindow clear_vulkan_window(OptVulkanWindow vk_window, VkInstance vk_instance);
 
+void show_vulkan_window(VulkanWindow* vk_window);
 typedef struct{
   struct{
     VkExtent2D extent;

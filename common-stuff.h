@@ -124,7 +124,6 @@ struct VulkanDevice {
 
 typedef struct {
   VkInstance vk_instance;
-  VkSurfaceKHR chosen_surface;
   //TODO:: Need to decouple this surface from device, some external way of
   // managing features needed
   

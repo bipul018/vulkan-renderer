@@ -3,3 +3,5 @@ zig-cache/*
 build/*
 res/aphoto.jpg
 .cache/*
+thoughts
+.#*

@@ -7,15 +7,42 @@
 #include <winuser.h>
 
 
+//Create win32 surface and window and stuff
+
+static LRESULT CALLBACK win32_wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam){
+  if(msg == WM_CLOSE){
+    //Kind of hack, to prevent having to send custom data and letting msg pump get all close messages
+    PostThreadMessageA(GetCurrentThreadId(), WM_CLOSE, 0, (LPARAM)h_wnd);
+    return 0;
+  }
+
+  //TODO:: Later add mechanism of calling user callbacks also
+  
+  return DefWindowProcA(h_wnd, msg, wparam, lparam);
+}
+
+
 OptVulkanWindow create_vulkan_window(CreateVulkanWindowParams params, VkInstance vk_instance, int style_flags){
   OptVulkanWindow window = {0};
 
+  //This won't ever be unregistered i think
+  static LPSTR wnd_class_name = NULL;
+  if(wnd_class_name == NULL){
+    wnd_class_name =  "Window Class" __FILE__ STRINGIFY(__LINE__) ;
+    WNDCLASS wnd_class = {
+      .hInstance = GetModuleHandle(NULL),
+      .lpszClassName = wnd_class_name,
+      .lpfnWndProc = win32_wnd_proc,
+    };
+    RegisterClass(&wnd_class);
+  }
+  
   if(nullptr == params.window_name){
     params.window_name = "Sample Vulkan Window";
   }
-  if(nullptr == params.window_class){
-    params.window_class = "Sample Vulkan Class";
-  }
+  /* if(nullptr == params.window_class){ */
+  /*   params.window_class = "Sample Vulkan Class"; */
+  /* } */
   if(0 == params.width){
     params.width = CW_USEDEFAULT;
   }
@@ -23,21 +50,21 @@ OptVulkanWindow create_vulkan_window(CreateVulkanWindowParams params, VkInstance
     params.height = CW_USEDEFAULT;
   }
   params.posy += 15;
-  if(nullptr == params.wnd_proc){
-    params.wnd_proc = DefWindowProc;
-  }
+  /* if(nullptr == params.wnd_proc){ */
+  /*   params.wnd_proc = DefWindowProc; */
+  /* } */
   
-  WNDCLASS wnd_class = {
-    .hInstance = GetModuleHandle(NULL),
-    .lpszClassName = params.window_class,
-    .lpfnWndProc = params.wnd_proc,
-  };
-  RegisterClass(&wnd_class);
-  window.value.class_name = params.window_class;
+  /* WNDCLASS wnd_class = { */
+  /*   .hInstance = GetModuleHandle(NULL), */
+  /*   .lpszClassName = params.window_class, */
+  /*   .lpfnWndProc = params.wnd_proc, */
+  /* }; */
+  /* RegisterClass(&wnd_class); */
+  /* window.value.class_name = params.window_class; */
 
   //WIndow flags
   //WS_OVERLAPPEDWINDOW | WS_MAXIMIZE,
-  window.value.window_handle = CreateWindowEx(0, window.value.class_name,
+  window.value.window_handle = CreateWindowEx(0, wnd_class_name,
 					      params.window_name,
 					      style_flags,
 					      params.posx, params.posy,
@@ -64,13 +91,16 @@ OptVulkanWindow create_vulkan_window(CreateVulkanWindowParams params, VkInstance
     return window;
   }
   
-  ShowWindow(window.value.window_handle, SW_SHOW);
-  RECT rc;
-  GetClientRect(window.value.window_handle, &rc);
-
-  window.value.width = rc.right;
-  window.value.height = rc.bottom;
   return window;
+}
+
+void show_vulkan_window(VulkanWindow* vk_window){
+  ShowWindow(vk_window->window_handle, SW_SHOW);
+  RECT rc;
+  GetClientRect(vk_window->window_handle, &rc);
+
+  vk_window->width = rc.right;
+  vk_window->height = rc.bottom;
 }
 
 OptVulkanWindow clear_vulkan_window(OptVulkanWindow vk_window, VkInstance vk_instance){
@@ -83,8 +113,8 @@ OptVulkanWindow clear_vulkan_window(OptVulkanWindow vk_window, VkInstance vk_ins
     DestroyWindow(vk_window.value.window_handle);
   case CREATE_VULKAN_WINDOW_WINDOW_CREATE_FAIL:
     //unregister class
-    UnregisterClass(vk_window.value.class_name,
-		    GetModuleHandle(NULL));
+    /* UnregisterClass(vk_window.value.class_name, */
+    /* 		    GetModuleHandle(NULL)); */
     
   case CREATE_VULKAN_WINDOW_TOP_FAIL_CODE:
     vk_window = (OptVulkanWindow){0};

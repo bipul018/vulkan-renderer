@@ -1,6 +1,6 @@
 #include "common-stuff.h"
 #include "vulkan/vulkan_core.h"
-
+#include "window-stuff.h"
 #include <stdbool.h>
 #include <string.h>
 
@@ -522,7 +522,8 @@ OptVulkanDevice create_device(const AllocInterface allocr,
   OptVulkanDevice output = {0};
   //param.p_vk_device->phy_device = VK_NULL_HANDLE;
   output.value.phy_device = VK_NULL_HANDLE;
-    
+
+  
   uint32_t phy_device_count = 0;
   vkEnumeratePhysicalDevices(param.vk_instance, &phy_device_count,
 			     NULL);
@@ -547,30 +548,34 @@ OptVulkanDevice create_device(const AllocInterface allocr,
   vkEnumeratePhysicalDevices(param.vk_instance, &phy_device_count,
 			     phy_devices.data);
 
-
+  
+  //Create a dummy window+surface to be destroyed later
+  OptVulkanWindow tmp_wnd = create_vulkan_window((CreateVulkanWindowParams){0},param.vk_instance, 0);
+    
   //for (int i = 0; i < phy_device_count; ++i) {
-  for_slice(phy_devices, i){
+  if(tmp_wnd.code >= 0) for_slice(phy_devices, i){
 
-    struct PhyDeviceTest test_results =
-      test_physical_device(allocr, phy_devices.data[i],
-			   param.chosen_surface,
-			   device_layers,
-			   device_extensions);
+      struct PhyDeviceTest test_results =
+	test_physical_device(allocr, phy_devices.data[i],
+			     tmp_wnd.value.surface,
+			     device_layers,
+			     device_extensions);
 
-    if(test_results.accepted){
-      output.value.phy_device = phy_devices.data[i];
-      output.value.graphics.family = test_results.graphics_family;
-      output.value.present.family = test_results.present_family;
-      output.value.compute.family = test_results.compute_family;
-      if(param.p_depth_stencil_format)
-	*param.p_depth_stencil_format = test_results.depth_stencil_format;
-      if(param.p_img_format)
-	*param.p_img_format = test_results.img_format;
-      if(param.p_min_img_count)
-	*param.p_min_img_count = test_results.min_img_count;
-      break;
+      if(test_results.accepted){
+	output.value.phy_device = phy_devices.data[i];
+	output.value.graphics.family = test_results.graphics_family;
+	output.value.present.family = test_results.present_family;
+	output.value.compute.family = test_results.compute_family;
+	if(param.p_depth_stencil_format)
+	  *param.p_depth_stencil_format = test_results.depth_stencil_format;
+	if(param.p_img_format)
+	  *param.p_img_format = test_results.img_format;
+	if(param.p_min_img_count)
+	  *param.p_min_img_count = test_results.min_img_count;
+	break;
+      }
     }
-  }
+  tmp_wnd = clear_vulkan_window(tmp_wnd, param.vk_instance);
   SLICE_FREE(phy_devices, allocr);
 
   if (output.value.phy_device == VK_NULL_HANDLE){

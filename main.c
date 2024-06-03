@@ -70,16 +70,6 @@ VkBool32 vk_debug_callback(
 
 PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetKHR_ = nullptr;
 
-//Create win32 surface and window and stuff
-
-LRESULT CALLBACK wnd_proc(HWND h_wnd, UINT msg, WPARAM wparam, LPARAM lparam){
-  if(msg == WM_DESTROY){
-    PostQuitMessage(0);
-    return 0;
-  }
-  
-  return DefWindowProcA(h_wnd, msg, wparam, lparam);
-}
 
 
 int main(){
@@ -116,18 +106,6 @@ int main(){
     printf("Couldn't setup debug messenger\n");
   }
   
-  OptVulkanWindow window = create_vulkan_window
-    ((CreateVulkanWindowParams){
-      .window_name = "Hello Vulkan",
-      .wnd_proc = wnd_proc,
-      .width = 500,
-      .height = 500
-    }, inst.value, WS_OVERLAPPEDWINDOW);
-
-  if(window.code < 0)
-    goto window;
-  printf("Creation of window successfull\n");
-
 
   //create device
   VkFormat depth_stencil_format;
@@ -153,7 +131,6 @@ int main(){
 
   OptVulkanDevice device = create_device(allocr,
 					 (CreateDeviceParam){
-					   .chosen_surface = window.value.surface,
 					   .vk_instance = inst.value,
 					   .p_img_format = &img_format,
 					   .p_depth_stencil_format = &depth_stencil_format,
@@ -173,15 +150,21 @@ int main(){
   if(vkCmdPushDescriptorSetKHR_ == nullptr){
     printf("Warning, couldnot get device proc address\n");
   }
-  
-  //Create renderpass
-  OptRenderPass render_pass = create_render_pass(device.value.device,
-						 img_format.format,
-						 depth_stencil_format);
-  if(render_pass.code < 0)
-    goto render_pass;
-  
-  struct SwapchainEntities old_swapchain = {0};
+
+  //Create window
+  OptVulkanWindow window = create_vulkan_window
+    ((CreateVulkanWindowParams){
+      .window_name = "Hello Vulkan",
+      //.wnd_proc = wnd_proc,
+      .width = 500,
+      .height = 500
+    }, inst.value, WS_OVERLAPPEDWINDOW);
+
+  if(window.code < 0)
+    goto window;
+  printf("Creation of window successfull\n");
+
+  //Main swapchain creation
   OptSwapchainOut swap = create_swapchain(allocr,(CreateSwapchainParam){
       .device = device.value,
       .surface = window.value.surface,
@@ -189,8 +172,23 @@ int main(){
       .win_height = window.value.height,
       .p_min_img_count = &min_imgs,
       .p_surface_format = &img_format,
-      .old_swapchain = old_swapchain.swapchain,
+      .old_swapchain = VK_NULL_HANDLE,
     });
+  if(swap.code < 0)
+    goto main_swapchain;
+  
+  //Create renderpass
+  OptRenderPass render_pass = create_render_pass(device.value.device,
+						 img_format.format,
+						 depth_stencil_format);
+  if(render_pass.code < 0)
+    goto render_pass;
+
+  
+  show_vulkan_window(&window.value);
+  
+  struct SwapchainEntities old_swapchain = {0};
+
 
   OptSwapchainImages swap_imgs = create_swapchain_images(device.value.device,
 							 swap, img_format.format);
@@ -249,16 +247,30 @@ int main(){
   //Now rendering loop needed
   MSG msg = {0};
   while(true){
+
+    //Check for wm_quit message
+
+    
     while(PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) > 0){
       TranslateMessage(&msg);
       SizingCheck(&msg);
-      //Probably check here for keys if dont give a fuck about callbacks
       event_stuff(msg);
       DispatchMessage(&msg);
+
+      //If any window has had some wm_close sent, this will be triggered
+      if(PeekMessage(&msg, NULL, WM_CLOSE, WM_CLOSE, PM_NOREMOVE) > 0){
+	//TODO a hack for now, later integrate a 'should_quit' bool in window
+	//Later, when multiple windows are used, check this lParam for window handle and close only that, only when all/main window is closed, post quit message
+	if(msg.lParam != 0){
+	  PostQuitMessage(0);
+	}
+      }
+      
     }
     if(msg.message == WM_QUIT){
       break;
     }
+
     update_stuff(window.value.width, window.value.height, curr_frame);
     //Here do vulkan rendering stuff
     u32 img_inx = 0;
@@ -376,7 +388,7 @@ int main(){
   clear_framebuffers(swap_frames, device.value.device, swap);
   clear_depthbuffers(swap_depth, device.value.device, swap);
   clear_swapchain_images(swap_imgs, device.value.device, swap);
-  clear_swapchain(swap, device.value.device);
+
   {
     OptSwapchainEntities old_opt_swap = {.value = old_swapchain};
     //For the initial case when no swapchain was recreated
@@ -394,11 +406,13 @@ int main(){
   }
  render_pass:
   render_pass = clear_render_pass(render_pass, device.value.device);
- device:
-  device = clear_device(device);
+ main_swapchain:
+  clear_swapchain(swap, device.value.device);
  window:
   window = clear_vulkan_window(window, inst.value);
   vkDestroyDebugMessenger(inst.value,dbg_messenger , get_glob_vk_alloc());
+ device:
+  device = clear_device(device);
  instance:
   inst = clear_instance(inst);
 

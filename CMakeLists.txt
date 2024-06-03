@@ -59,7 +59,7 @@ target_link_libraries(${Project} PRIVATE ${CoreStaticLibraries})
 #The dll of everything except main.c
 add_library(${Project}-dll SHARED)
 set_property(TARGET ${Project}-dll PROPERTY WINDOWS_EXPORT_ALL_SYMBOLS ON)
-target_sources(${Project}-dll PRIVATE lisp-export.c ${CoreSourceFiles})
+target_sources(${Project}-dll PRIVATE ${CoreSourceFiles})
 # TODO:: Maybe later this can be better solved using INTERFACE
 target_sources(${Project}-dll PRIVATE ${CoreHeaderFiles})
 target_include_directories(${Project}-dll PRIVATE ${CoreIncludePaths})
